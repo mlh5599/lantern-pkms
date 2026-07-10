@@ -1,6 +1,6 @@
 [project]
 name = "lantern-pkms"
-version = "0.0.4"
+version = "0.0.5"
 description = "Supernote bullet-journal ingestion, local HTR, and Lantern (Obsidian) vault sync"
 requires-python = ">=3.12"
 license = { text = "MIT" }
