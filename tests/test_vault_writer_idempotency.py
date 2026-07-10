@@ -57,7 +57,8 @@ def test_new_target_creates_full_file(vault: Path, state: StateDB) -> None:
     assert outcome.created_file
     assert not outcome.forked
     text = (vault / "Daily/2026/2026-07-09.md").read_text()
-    assert "- [ ] Buy groceries ^lp-1234-3-0" in text
+    assert "- [ ] Buy groceries" in text
+    assert "^lp-1234-3-0" not in text  # block ids are a DB key only, never rendered
     assert "lantern_pkms" in text
     assert "target_key: Daily/2026/2026-07-09.md" in text
 
@@ -83,8 +84,8 @@ def test_source_change_on_untouched_tip_fully_regenerates(vault: Path, state: St
     sync_target(vault_root=vault, lines=[_task_line("Buy groceries and milk")], now_iso="t2", **common)
 
     text = (vault / "Daily/2026/2026-07-09.md").read_text()
-    assert "Buy groceries and milk ^lp-1234-3-0" in text
-    assert "- [ ] Buy groceries ^lp-1234-3-0" not in text
+    assert "- [ ] Buy groceries and milk" in text
+    assert "- [ ] Buy groceries\n" not in text
 
 
 def test_dropped_line_disappears_from_next_regeneration(vault: Path, state: StateDB) -> None:

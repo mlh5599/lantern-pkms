@@ -72,7 +72,8 @@ CREATE INDEX IF NOT EXISTS idx_vault_entries_page_id ON vault_entries(page_id);
 
 
 def make_block_id(note_id: str, page_number: int, entry_index: int) -> str:
-    """Stable block id for an entry, e.g. 'lp-1234-3-0' (Obsidian ref: ^lp-1234-3-0)."""
+    """Stable id for an entry, e.g. 'lp-1234-3-0' — used as vault_entries' primary
+    key, not rendered into the vault file (see vault/writer.py)."""
     return f"lp-{note_id}-{page_number}-{entry_index}"
 
 

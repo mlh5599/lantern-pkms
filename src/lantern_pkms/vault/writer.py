@@ -34,9 +34,9 @@ _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.DOTALL)
 class RenderedLine:
     """One entry ready to be recorded against a target for the page being synced."""
 
-    block_id: str
+    block_id: str  # stable id, used as the DB key only — not rendered into the file
     section: str  # one of SECTION_ORDER
-    text: str  # markdown line content WITHOUT the trailing " ^block_id"
+    text: str  # markdown line content, rendered as-is
     entry_type: str
     entry_index: int
 
@@ -47,10 +47,6 @@ class SyncOutcome:
     created_file: bool = False
     forked: bool = False
     forked_from: str | None = None
-
-
-def block_ref(block_id: str) -> str:
-    return f"^{block_id}"
 
 
 # --------------------------------------------------------------------------------
@@ -108,8 +104,7 @@ def render_target_file(
 
     by_section: dict[str, list[str]] = {s: [] for s in SECTION_ORDER}
     for entry in entries:
-        line = f"{entry.text} {block_ref(entry.entry_id)}"
-        by_section.setdefault(entry.section, []).append(line)
+        by_section.setdefault(entry.section, []).append(entry.text)
 
     body_parts: list[str] = []
     if continued_from:
