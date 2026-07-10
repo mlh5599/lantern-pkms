@@ -52,6 +52,24 @@ _SECTION_FOR_ENTRY_TYPE = {
 # --------------------------------------------------------------------------------
 
 
+def note_already_fully_processed(
+    existing: NoteRecord | None, content_hash: str, has_pages: bool
+) -> bool:
+    """Whether a note can be safely skipped this run.
+
+    Matching content_sha256 alone is NOT sufficient — if a prior run recorded the
+    note (e.g. right before being killed/restarted) but never got as far as
+    processing any of its pages, a content-hash-only check would skip it forever,
+    since the source never actually changes. Real bug, found deploying this for the
+    first time: a mid-run container restart left 34 notes recorded with zero pages
+    processed, and every subsequent run silently treated all of them as "already
+    synced." Requiring at least one recorded page is what makes this self-healing —
+    an incompletely-processed note gets retried on the very next run with no manual
+    state cleanup needed.
+    """
+    return existing is not None and existing.content_sha256 == content_hash and has_pages
+
+
 def render_entry_text(c: ClassifiedEntry) -> str:
     if c.needs_review:
         reason = c.review_reason or "flagged"
@@ -169,8 +187,9 @@ def _ingest_note(
     content_hash = hashlib.sha256(data).hexdigest()
 
     existing = state.get_note(entry.id)
-    if existing is not None and existing.content_sha256 == content_hash:
-        return  # unchanged — nothing new to sync for this note
+    already_has_pages = bool(state.get_pages_for_note(entry.id))
+    if note_already_fully_processed(existing, content_hash, already_has_pages):
+        return  # unchanged AND already fully processed — nothing new to sync
 
     now_iso = datetime.now().astimezone().isoformat()
     state.upsert_note(

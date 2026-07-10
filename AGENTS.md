@@ -138,6 +138,23 @@ Related confirmed facts:
 
 ---
 
+## Critical gotcha: note-level skip check must confirm pages were actually processed
+
+`main.py`'s per-note "already synced, skip it" check must never rely on
+`content_sha256` matching alone — see `note_already_fully_processed()`'s docstring.
+Found deploying this for real the first time: an ansible handler bug (since fixed,
+in the companion `homelab-ansible` repo) caused a mid-run container restart that
+recorded 34 notes' content hashes but killed the process before any of them got as
+far as having a single page processed. Every subsequent run then silently skipped
+all 34 forever, since their source content genuinely hadn't changed — `pages: 0,
+vault_entries: 0` in `state.db` forever, with zero errors logged anywhere, because
+nothing ever failed; it just never started. The fix requires `has_pages` (at least
+one row in `pages` for that note_id) in addition to the hash match, which makes an
+incompletely-processed note self-heal on the very next run with no manual state
+cleanup — don't remove that condition as a "simplification."
+
+---
+
 ## Supernote folder taxonomy — now fully configurable
 
 See `config/taxonomy.default.yml` and `src/lantern_pkms/taxonomy.py`. Notes live under

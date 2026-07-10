@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from lantern_pkms.main import append_rendered_lines, render_entry_text
+from lantern_pkms.main import append_rendered_lines, note_already_fully_processed, render_entry_text
+from lantern_pkms.state.db import NoteRecord
 from lantern_pkms.structuring.symbol_mapping import ClassifiedEntry
 from lantern_pkms.taxonomy import TaxonomyConfig
 
@@ -13,6 +14,40 @@ CONFIG_PATH = Path(__file__).parent.parent / "config" / "taxonomy.default.yml"
 @pytest.fixture(scope="module")
 def taxonomy() -> TaxonomyConfig:
     return TaxonomyConfig.load(CONFIG_PATH)
+
+
+def _note_record(content_sha256: str = "abc123") -> NoteRecord:
+    return NoteRecord(
+        note_id="1234",
+        category="daily",
+        folder_year=2026,
+        file_name="2026-07-09.note",
+        content_sha256=content_sha256,
+        first_ingested_at="t",
+        last_ingested_at="t",
+    )
+
+
+def test_note_never_seen_before_is_not_skipped() -> None:
+    assert note_already_fully_processed(None, "abc123", has_pages=False) is False
+
+
+def test_note_unchanged_but_never_had_pages_processed_is_not_skipped() -> None:
+    # Regression test for the real bug: a note recorded (e.g. right before a mid-run
+    # crash/restart) but never actually processed must be retried, not skipped
+    # forever just because its content hash still matches.
+    existing = _note_record(content_sha256="abc123")
+    assert note_already_fully_processed(existing, "abc123", has_pages=False) is False
+
+
+def test_note_unchanged_and_has_pages_is_skipped() -> None:
+    existing = _note_record(content_sha256="abc123")
+    assert note_already_fully_processed(existing, "abc123", has_pages=True) is True
+
+
+def test_note_content_changed_is_not_skipped_even_with_pages() -> None:
+    existing = _note_record(content_sha256="old-hash")
+    assert note_already_fully_processed(existing, "new-hash", has_pages=True) is False
 
 
 def test_render_entry_text_open_task() -> None:
