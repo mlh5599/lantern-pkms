@@ -24,21 +24,25 @@ from lantern_pkms.state.db import StateDB, TargetRecord, VaultEntryRecord
 
 FRONTMATTER_KEY = "lantern_pkms"
 
-SECTION_ORDER = ["Entries", "Needs Review"]
-_SECTION_HEADERS = {"Needs Review": "## ⚠️ Needs Review"}
-
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.DOTALL)
 
 
 @dataclass
 class RenderedLine:
-    """One entry ready to be recorded against a target for the page being synced."""
+    """One entry ready to be recorded against a target for the page being synced.
+
+    Renders inline at its natural outline position regardless of `needs_review` —
+    see issue #6: a separate "Needs Review" section used to pull low-confidence
+    entries out of their surrounding context. `needs_review` is only carried here
+    for the htr_low_confidence_flagged_total metric (main.py); it has no effect
+    on rendering, which is already fully expressed in `text`.
+    """
 
     block_id: str  # stable id, used as the DB key only — not rendered into the file
-    section: str  # one of SECTION_ORDER
     text: str  # markdown line content, rendered as-is
     entry_type: str
     entry_index: int
+    needs_review: bool = False
 
 
 @dataclass
@@ -102,25 +106,20 @@ def render_target_file(
     frontmatter = {FRONTMATTER_KEY: meta}
     fm_yaml = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
 
-    by_section: dict[str, list[str]] = {s: [] for s in SECTION_ORDER}
-    for entry in entries:
-        by_section.setdefault(entry.section, []).append(entry.text)
-
     body_parts: list[str] = []
     if continued_from:
         continued_stem = Path(continued_from).stem
         body_parts.append(f"*Continued from [[{continued_stem}]]*")
-    for section in SECTION_ORDER:
-        texts = by_section.get(section) or []
-        if not texts:
-            continue
-        header = _SECTION_HEADERS.get(section)
-        block_lines = ([header] if header else []) + texts
-        # Single newline within a section so sibling/nested entries stay dense;
-        # "\n\n" (below) is reserved for separating distinct structural blocks —
-        # see issue #5, where a blank line before every entry (including nested
-        # ones) also made Obsidian misrender indented bullets as code blocks.
-        body_parts.append("\n".join(block_lines))
+    if entries:
+        # Single newline between entries so sibling/nested lines stay dense; "\n\n"
+        # (below) is reserved for separating distinct structural blocks — see
+        # issue #5, where a blank line before every entry (including nested ones)
+        # also made Obsidian misrender indented bullets as code blocks. Entries
+        # render in one flat, ordered block — no "Needs Review" bucket pulling
+        # low-confidence lines out of their outline position (issue #6); a
+        # flagged entry stays right where it was written, annotated inline via
+        # render_entry_text() in main.py.
+        body_parts.append("\n".join(entry.text for entry in entries))
 
     if origin_pages:
         from lantern_pkms.taxonomy import source_page_path
@@ -239,7 +238,6 @@ def sync_target(
             category=category,
             text=line.text,
             symbol_raw="",
-            section=line.section,
             updated_at=now_iso,
         )
         for line in lines

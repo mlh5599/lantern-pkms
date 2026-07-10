@@ -94,10 +94,10 @@ def note_already_fully_processed(
 
 
 def render_entry_text(c: ClassifiedEntry) -> str:
+    prefix = INDENT_UNIT * c.indent_level
     if c.needs_review:
         reason = c.review_reason or "flagged"
-        return f"- {c.text} (confidence {c.confidence:.2f} — {reason})"
-    prefix = INDENT_UNIT * c.indent_level
+        return f"{prefix}- {c.text} (confidence {c.confidence:.2f} — {reason})"
     if c.entry_type == "task":
         if c.state == "complete":
             return f"{prefix}- [x] {c.text}"
@@ -178,8 +178,6 @@ def append_rendered_lines(
     an origin cross-reference and a destination live entry (see the vault writer's
     docstring: "a migrated task is one canonical entry that moves").
     """
-    section = "Needs Review" if c.needs_review else "Entries"
-
     if is_migration_state(c.state) and entry_date is not None:
         dest = compute_migration(c.state, entry_date)
         assert dest is not None  # is_migration_state already guarantees this
@@ -192,7 +190,7 @@ def append_rendered_lines(
         link_target = dest_path.removesuffix(".md")
         origin_text = f"{INDENT_UNIT * c.indent_level}- [{marker}] ~~{c.text}~~ → migrated to [[{link_target}]]"
         rendered_by_target.setdefault(default_path, []).append(
-            RenderedLine(block_id=block_id, section="Entries", text=origin_text, entry_type="task", entry_index=entry_index)
+            RenderedLine(block_id=block_id, text=origin_text, entry_type="task", entry_index=entry_index)
         )
 
         dest_entry = ClassifiedEntry(
@@ -201,14 +199,17 @@ def append_rendered_lines(
         )
         rendered_by_target.setdefault(dest_path, []).append(
             RenderedLine(
-                block_id=f"{block_id}-dest", section="Entries", text=render_entry_text(dest_entry),
+                block_id=f"{block_id}-dest", text=render_entry_text(dest_entry),
                 entry_type="task", entry_index=entry_index,
             )
         )
         return
 
     rendered_by_target.setdefault(default_path, []).append(
-        RenderedLine(block_id=block_id, section=section, text=render_entry_text(c), entry_type=c.entry_type, entry_index=entry_index)
+        RenderedLine(
+            block_id=block_id, text=render_entry_text(c), entry_type=c.entry_type,
+            entry_index=entry_index, needs_review=c.needs_review,
+        )
     )
 
 
@@ -221,7 +222,7 @@ def append_heading_line(
 ) -> None:
     rendered_by_target.setdefault(default_path, []).append(
         RenderedLine(
-            block_id=block_id, section="Entries", text=render_heading_text(item),
+            block_id=block_id, text=render_heading_text(item),
             entry_type="heading", entry_index=entry_index,
         )
     )
@@ -366,7 +367,7 @@ def _ingest_page(
         else:
             append_heading_line(rendered_by_target, block_id, i, item, default_path)
 
-    flagged_count = sum(1 for lines in rendered_by_target.values() for line in lines if line.section == "Needs Review")
+    flagged_count = sum(1 for lines in rendered_by_target.values() for line in lines if line.needs_review)
     if flagged_count:
         htr_low_confidence_flagged_total.inc(flagged_count)
 

@@ -107,13 +107,14 @@ def test_render_entry_text_indents_nested_entries() -> None:
     assert render_entry_text(c) == "        - = Uplifted"
 
 
-def test_render_entry_text_needs_review_is_never_indented() -> None:
-    # Needs Review stays a flat escape-hatch list, unrelated to original nesting.
+def test_render_entry_text_needs_review_preserves_indent() -> None:
+    # See issue #6: a flagged entry stays at its natural nesting depth, rendered
+    # inline where it belongs, rather than flattened into a separate section.
     c = ClassifiedEntry(
         entry_type="review", state=None, text="???", symbol_raw="bullet", confidence=0.2,
         needs_review=True, review_reason="flagged", indent_level=3,
     )
-    assert render_entry_text(c).startswith("- ???")
+    assert render_entry_text(c).startswith("            - ???")
 
 
 def test_render_heading_text_with_end() -> None:

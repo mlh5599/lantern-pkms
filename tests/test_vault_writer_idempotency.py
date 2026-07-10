@@ -38,7 +38,7 @@ def vault(tmp_path: Path) -> Path:
 
 def _task_line(text: str = "Buy groceries", block_id: str = "lp-1234-3-0") -> RenderedLine:
     return RenderedLine(
-        block_id=block_id, section="Entries", text=f"- [ ] {text}", entry_type="task", entry_index=0
+        block_id=block_id, text=f"- [ ] {text}", entry_type="task", entry_index=0
     )
 
 
@@ -90,14 +90,14 @@ def test_source_change_on_untouched_tip_fully_regenerates(vault: Path, state: St
 
 def test_sibling_and_nested_entries_render_with_no_blank_line_between(vault: Path, state: StateDB) -> None:
     lines = [
-        RenderedLine(block_id="lp-1234-3-0", section="Entries", text="- Team sync", entry_type="event", entry_index=0),
+        RenderedLine(block_id="lp-1234-3-0", text="- Team sync", entry_type="event", entry_index=0),
         RenderedLine(
-            block_id="lp-1234-3-1", section="Entries", text="    - = Focused and productive",
+            block_id="lp-1234-3-1", text="    - = Focused and productive",
             entry_type="mood", entry_index=1,
         ),
-        RenderedLine(block_id="lp-1234-3-2", section="Entries", text="- Weekly planning meeting", entry_type="event", entry_index=2),
+        RenderedLine(block_id="lp-1234-3-2", text="- Weekly planning meeting", entry_type="event", entry_index=2),
         RenderedLine(
-            block_id="lp-1234-3-3", section="Entries", text="    - Follow up on open action items",
+            block_id="lp-1234-3-3", text="    - Follow up on open action items",
             entry_type="task", entry_index=3,
         ),
     ]
@@ -112,18 +112,26 @@ def test_sibling_and_nested_entries_render_with_no_blank_line_between(vault: Pat
     ) in text
 
 
-def test_needs_review_section_still_separated_from_entries_by_blank_line(vault: Path, state: StateDB) -> None:
+def test_needs_review_entry_renders_inline_not_in_a_separate_section(vault: Path, state: StateDB) -> None:
+    """See issue #6: a low-confidence entry stays right where it was written,
+    annotated inline, instead of being pulled into a separate section."""
     lines = [
-        _task_line("Buy groceries", "lp-1234-3-0"),
+        RenderedLine(block_id="lp-1234-3-0", text="- Team sync", entry_type="event", entry_index=0),
         RenderedLine(
-            block_id="lp-1234-3-1", section="Needs Review", text="- garbled text (confidence 0.30)",
-            entry_type="task", entry_index=1,
+            block_id="lp-1234-3-1", text="    - garbled text (confidence 0.30 — below threshold 0.60)",
+            entry_type="task", entry_index=1, needs_review=True,
         ),
+        RenderedLine(block_id="lp-1234-3-2", text="- Weekly planning meeting", entry_type="event", entry_index=2),
     ]
     sync_target(vault_root=vault, lines=lines, now_iso="t1", **_common(state))
 
     text = (vault / "Daily/2026/2026-07-09.md").read_text()
-    assert "- [ ] Buy groceries\n\n## ⚠️ Needs Review\n- garbled text" in text
+    assert "Needs Review" not in text
+    assert (
+        "- Team sync\n"
+        "    - garbled text (confidence 0.30 — below threshold 0.60)\n"
+        "- Weekly planning meeting"
+    ) in text
 
 
 def test_dropped_line_disappears_from_next_regeneration(vault: Path, state: StateDB) -> None:

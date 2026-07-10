@@ -61,7 +61,6 @@ CREATE TABLE IF NOT EXISTS vault_entries (
     entry_date TEXT,
     category TEXT NOT NULL,
     migration_state TEXT,
-    section TEXT NOT NULL DEFAULT 'Entries',
     text TEXT NOT NULL,
     symbol_raw TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -127,7 +126,6 @@ class VaultEntryRecord:
     updated_at: str
     entry_date: str | None = None
     migration_state: str | None = None
-    section: str = "Entries"
 
 
 class StateDB:
@@ -284,9 +282,9 @@ class StateDB:
                 """
                 INSERT INTO vault_entries (
                     entry_id, target_key, page_id, entry_index, entry_type,
-                    entry_date, category, migration_state, section, text,
+                    entry_date, category, migration_state, text,
                     symbol_raw, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(entry_id) DO UPDATE SET
                     target_key = excluded.target_key,
                     page_id = excluded.page_id,
@@ -295,7 +293,6 @@ class StateDB:
                     entry_date = excluded.entry_date,
                     category = excluded.category,
                     migration_state = excluded.migration_state,
-                    section = excluded.section,
                     text = excluded.text,
                     symbol_raw = excluded.symbol_raw,
                     updated_at = excluded.updated_at
@@ -309,7 +306,6 @@ class StateDB:
                     entry.entry_date,
                     entry.category,
                     entry.migration_state,
-                    entry.section,
                     entry.text,
                     entry.symbol_raw,
                     entry.updated_at,
@@ -416,7 +412,6 @@ def _row_to_entry(row: sqlite3.Row) -> VaultEntryRecord:
         entry_date=row["entry_date"],
         category=row["category"],
         migration_state=row["migration_state"],
-        section=row["section"],
         text=row["text"],
         symbol_raw=row["symbol_raw"],
         updated_at=row["updated_at"],
