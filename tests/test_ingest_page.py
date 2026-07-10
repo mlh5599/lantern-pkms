@@ -175,7 +175,7 @@ def test_ingest_page_records_visible_failure_when_htr_fails(tmp_path, symbol_con
         assert page.page_content_sha256.startswith("htr-failed:")
         assert page.review_needed is True
 
-        vault_file = settings.vault_path / "Daily/2026/2026-07-09.md"
+        vault_file = settings.vault_path / "Journal/Daily/2026/2026-07-09.md"
         assert vault_file.exists()
         assert "HTR failed to transcribe this page" in vault_file.read_text()
 

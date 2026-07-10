@@ -29,23 +29,23 @@ index_note: "Index.note"
 categories:
   daily:
     source_folder: "Daily"
-    vault_folder: "Daily"
+    vault_folder: "Journal/Daily"
     date_format: "daily"
   monthly:
     source_folder: "Monthly"
-    vault_folder: "Monthly"
+    vault_folder: "Journal/Monthly"
     date_format: "monthly"
   future:
     source_folder: "Future"
-    vault_folder: "Future"
+    vault_folder: "Journal/Future"
     date_format: "none"
   collections:
     source_folder: "Collections"
-    vault_folder: "Collections"
+    vault_folder: "Journal/Collections"
     date_format: "none"
   other:
     source_folder: "Other"
-    vault_folder: "Other"
+    vault_folder: "Journal/Other"
     date_format: "none"
 
 # Destination for '<' (migrated-to-backlog) tasks — must name a category above.

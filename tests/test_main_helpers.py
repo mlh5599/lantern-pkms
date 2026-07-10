@@ -239,13 +239,13 @@ def test_append_rendered_lines_migrated_next_day_splits_across_two_files(taxonom
     rendered: dict = {}
     append_rendered_lines(rendered, "lp-1-1-0", 0, c, 2026, date(2026, 7, 9), "Daily/2026/2026-07-09.md", taxonomy)
 
-    assert set(rendered.keys()) == {"Daily/2026/2026-07-09.md", "Daily/2026/2026-07-10.md"}
+    assert set(rendered.keys()) == {"Daily/2026/2026-07-09.md", "Journal/Daily/2026/2026-07-10.md"}
     origin_line = rendered["Daily/2026/2026-07-09.md"][0]
     assert "[ ]" in origin_line.text
-    assert "migrated to [[Daily/2026/2026-07-10]]" in origin_line.text
+    assert "migrated to [[Journal/Daily/2026/2026-07-10]]" in origin_line.text
     assert origin_line.block_id == "lp-1-1-0"
 
-    dest_line = rendered["Daily/2026/2026-07-10.md"][0]
+    dest_line = rendered["Journal/Daily/2026/2026-07-10.md"][0]
     assert dest_line.text == "- [ ] Finish report (migrated from [[Daily/2026/2026-07-09]])"
     assert dest_line.block_id == "lp-1-1-0-dest"
 
@@ -258,10 +258,10 @@ def test_append_rendered_lines_migrated_backlog_targets_future_backlog_file(taxo
     rendered: dict = {}
     append_rendered_lines(rendered, "lp-1-1-0", 0, c, 2026, date(2026, 7, 9), "Daily/2026/2026-07-09.md", taxonomy)
 
-    assert "Future/2026/Backlog.md" in rendered
+    assert "Journal/Future/2026/Backlog.md" in rendered
     origin_line = rendered["Daily/2026/2026-07-09.md"][0]
     assert "[ ]" in origin_line.text
-    assert "migrated to [[Future/2026/Backlog]]" in origin_line.text
+    assert "migrated to [[Journal/Future/2026/Backlog]]" in origin_line.text
 
-    dest_line = rendered["Future/2026/Backlog.md"][0]
+    dest_line = rendered["Journal/Future/2026/Backlog.md"][0]
     assert dest_line.text == "- [ ] Plan trip (migrated from [[Daily/2026/2026-07-09]])"

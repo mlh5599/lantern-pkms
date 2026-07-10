@@ -71,21 +71,21 @@ def test_parse_entry_date_none_for_non_calendar_category(taxonomy: TaxonomyConfi
 
 def test_default_target_path_daily(taxonomy: TaxonomyConfig) -> None:
     path = taxonomy.default_target_path("daily", 2026, "ignored", date(2026, 7, 9))
-    assert path == "Daily/2026/2026-07-09.md"
+    assert path == "Journal/Daily/2026/2026-07-09.md"
 
 
 def test_default_target_path_monthly(taxonomy: TaxonomyConfig) -> None:
     path = taxonomy.default_target_path("monthly", 2026, "ignored", date(2026, 7, 1))
-    assert path == "Monthly/2026/2026-07.md"
+    assert path == "Journal/Monthly/2026/2026-07.md"
 
 
 def test_default_target_path_title_based(taxonomy: TaxonomyConfig) -> None:
     path = taxonomy.default_target_path("future", 2026, "Future Log", None)
-    assert path == "Future/2026/future-log.md"
+    assert path == "Journal/Future/2026/future-log.md"
 
 
 def test_backlog_path_uses_configured_backlog_category(taxonomy: TaxonomyConfig) -> None:
-    assert taxonomy.backlog_path(2026) == "Future/2026/Backlog.md"
+    assert taxonomy.backlog_path(2026) == "Journal/Future/2026/Backlog.md"
 
 
 def test_slugify() -> None:
