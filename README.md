@@ -142,18 +142,28 @@ pass (`structuring/symbol_mapping.py`), never an LLM judgment call.
 ## Human-edit safety
 
 You can freely edit, annotate, and link ingested notes in Obsidian. The vault writer
-(`vault/writer.py`) guarantees:
+(`vault/writer.py`) works at whole-file granularity — a note is either fully
+system-owned or fully yours, never a line-by-line mix:
 
-- **First edit wins, permanently.** The moment you touch a system-written line
-  (fix a typo, toggle a checkbox, add a `[[wikilink]]`), it's yours forever — later
-  re-ingestion never touches it again.
-- **Deletions are never resurrected.** Delete a line, it stays deleted.
-- **Files are found by content, not a trusted path** — renaming/reorganizing a
-  note in Obsidian doesn't break tracking (frontmatter under a namespaced `lantern_pkms:`
+- **Untouched notes are freely regenerated.** As long as a note is still exactly
+  what the system last wrote (ignoring only its own `last_synced` timestamp), every
+  sync blows it away and fully recreates it from everything transcribed for it so
+  far — safe, since nothing you've written has been added yet.
+- **The moment you touch a note, it's frozen forever.** Fix a typo, toggle a
+  checkbox, add a `[[wikilink]]`, write a paragraph of your own — any of that
+  permanently hands the file over to you. Later re-ingestion never writes to it
+  again.
+- **New content forks instead of overwriting.** When a frozen note needs new
+  synced content, it lands in a new file (e.g. `Backlog (cont. 1).md`) that links
+  back to the note it forked from, with a matching backlink written once into the
+  old note. Your original note keeps its path forever, so links you've already made
+  into it never break. Notes that accumulate over a long time (Backlog, Future Log,
+  Monthly collections, Daily notes with migrated-in tasks) can grow into a chain
+  this way — each edit adds one more link, and only the current tip keeps receiving
+  new entries.
+- **Files are found by content, not a trusted path** — renaming an untouched note
+  in Obsidian doesn't break tracking (frontmatter under a namespaced `lantern_pkms:`
   key is what's actually matched on).
-- **Real conflicts are flagged, never silently dropped or overwritten** — if the
-  source page changes again after you've already edited that line, it shows up under
-  "⚠️ Needs Review" instead of disappearing or clobbering your edit.
 
 ## Repo layout
 
@@ -171,18 +181,18 @@ src/lantern_pkms/
 ├── htr/                     # Ollama structured-output HTR client
 ├── structuring/              # symbol_mapping.py, migration.py — deterministic
 ├── vault/writer.py           # idempotent, human-edit-safe vault writer
-├── state/db.py               # SQLite: notes/pages/vault_entries tracking
+├── state/db.py               # SQLite: notes/pages/targets/vault_entries tracking
 └── metrics.py                 # Prometheus metrics
 scripts/htr_bench.py          # standalone Phase-0 verification CLI
-tests/                         # 79 tests, run with `pytest`
+tests/                         # 107 tests, run with `pytest`
 SECURITY-REVIEW.md             # dependency/image risk review — required before use
 ```
 
 ## Status
 
-**Fully built and tested (79/79 passing):** structuring logic, state tracking, the
-vault writer's ownership-handoff guarantees, the configurable taxonomy system, the
-Supernote client, the Ollama HTR client, and end-to-end orchestration.
+**Fully built and tested (107/107 passing):** structuring logic, state tracking, the
+vault writer's whole-file recreate/fork guarantees, the configurable taxonomy system,
+the Supernote client, the Ollama HTR client, and end-to-end orchestration.
 
 **Live-verified against a real self-hosted Supernote instance:** login (including
 with MFA enabled — the device/terminal login path bypasses it, same as the physical

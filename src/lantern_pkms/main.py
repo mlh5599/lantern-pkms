@@ -41,7 +41,7 @@ from lantern_pkms.structuring.symbol_mapping import (
 from lantern_pkms.supernote.client import SupernoteClient, SupernoteEntry
 from lantern_pkms.supernote.note_parser import ParsedNotebook, parse_note_bytes
 from lantern_pkms.taxonomy import TaxonomyConfig, source_page_path
-from lantern_pkms.vault.writer import RenderedLine, sync_page
+from lantern_pkms.vault.writer import RenderedLine, sync_target
 
 logger = logging.getLogger("lantern_pkms")
 
@@ -340,8 +340,8 @@ def _ingest_page(
     default_path = taxonomy.default_target_path(category, year, title, entry_date)
 
     # vault_entries.page_id is a foreign key into pages(page_id) — the pages row must
-    # exist before sync_page() below inserts any vault_entries referencing it, or the
-    # insert fails with a FOREIGN KEY constraint error.
+    # exist before sync_target() below inserts any vault_entries referencing it, or
+    # the insert fails with a FOREIGN KEY constraint error.
     confidences = [item.entry.confidence if isinstance(item, EntryItem) else item.confidence for item in items]
     avg_confidence = sum(confidences) / len(confidences) if confidences else None
     review_needed = any(isinstance(item, EntryItem) and item.entry.needs_review for item in items)
@@ -351,6 +351,7 @@ def _ingest_page(
             note_id=entry.id,
             page_number=page_number,
             page_content_sha256=page_hash,
+            default_target_path=default_path,
             htr_json=json.dumps([item.model_dump() for item in items]),
             htr_confidence_avg=avg_confidence,
             review_needed=review_needed,
@@ -365,23 +366,20 @@ def _ingest_page(
         else:
             append_heading_line(rendered_by_target, block_id, i, item, default_path)
 
-    flagged_count = 0
-    for target_path, lines in rendered_by_target.items():
-        outcome = sync_page(
-            vault_root=settings.vault_path,
-            default_rel_path=target_path,
-            note_id=entry.id,
-            page_id=page_id,
-            page_number=page_number,
-            entry_date=entry_date.isoformat() if entry_date else None,
-            category=category,
-            lines=lines,
-            state=state,
-            source_image_rel_path=image_rel_path if target_path == default_path else None,
-        )
-        flagged_count += len(outcome.flagged_conflicts)
+    flagged_count = sum(1 for lines in rendered_by_target.values() for line in lines if line.section == "Needs Review")
     if flagged_count:
         htr_low_confidence_flagged_total.inc(flagged_count)
+
+    for target_path, lines in rendered_by_target.items():
+        sync_target(
+            vault_root=settings.vault_path,
+            target_key=target_path,
+            category=category,
+            entry_date=entry_date.isoformat() if entry_date else None,
+            page_id=page_id,
+            lines=lines,
+            state=state,
+        )
 
     htr_pages_processed_total.inc()
 

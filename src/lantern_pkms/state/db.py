@@ -1,9 +1,11 @@
 """SQLite state tracking for idempotent ingestion.
 
-Schema mirrors the plan: notes -> pages -> vault_entries. This module only persists
-records — the decision logic for whether a vault_entry write is safe (ownership
-handoff, once-per-divergence flagging) lives in vault/writer.py, which reads the
-current row before deciding what to write next.
+Schema: notes -> pages -> vault_entries, plus targets (one row per logical vault
+note/chain). A "target" is a taxonomy-resolved destination (e.g. a Daily note or
+the Backlog) that accumulates entries from many pages over time; vault_entries
+records what's been transcribed, targets tracks which file on disk is the current
+chain tip and whether it's still safe to regenerate. See vault/writer.py for the
+touch-detection and fork logic that reads these records.
 """
 
 from __future__ import annotations
@@ -31,37 +33,42 @@ CREATE TABLE IF NOT EXISTS pages (
     note_id TEXT NOT NULL REFERENCES notes(note_id),
     page_number INTEGER NOT NULL,
     page_content_sha256 TEXT NOT NULL,
+    default_target_path TEXT NOT NULL,
     htr_json TEXT,
     htr_confidence_avg REAL,
     review_needed INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_pages_note_id ON pages(note_id);
 
+CREATE TABLE IF NOT EXISTS targets (
+    target_key TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    entry_date TEXT,
+    tip_path TEXT NOT NULL,
+    tip_seq INTEGER NOT NULL DEFAULT 0,
+    last_written_hash TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS vault_entries (
-    entry_id TEXT PRIMARY KEY,
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id TEXT NOT NULL UNIQUE,
+    target_key TEXT NOT NULL REFERENCES targets(target_key),
     page_id TEXT NOT NULL REFERENCES pages(page_id),
     entry_index INTEGER NOT NULL,
     entry_type TEXT NOT NULL,
     entry_date TEXT,
     category TEXT NOT NULL,
     migration_state TEXT,
+    section TEXT NOT NULL DEFAULT 'Entries',
     text TEXT NOT NULL,
     symbol_raw TEXT NOT NULL,
-    obsidian_note_path TEXT NOT NULL,
-    obsidian_block_id TEXT NOT NULL,
-    needs_review INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'system_owned',
-    last_written_text TEXT,
-    last_seen_source_text TEXT
+    updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_vault_entries_target_key ON vault_entries(target_key);
 CREATE INDEX IF NOT EXISTS idx_vault_entries_page_id ON vault_entries(page_id);
 """
-
-# vault_entries.status values
-STATUS_SYSTEM_OWNED = "system_owned"
-STATUS_USER_MODIFIED = "user_modified"
-STATUS_USER_DELETED = "user_deleted"
 
 
 def make_block_id(note_id: str, page_number: int, entry_index: int) -> str:
@@ -88,29 +95,38 @@ class PageRecord:
     note_id: str
     page_number: int
     page_content_sha256: str
+    default_target_path: str
     htr_json: str | None = None
     htr_confidence_avg: float | None = None
     review_needed: bool = False
 
 
 @dataclass
+class TargetRecord:
+    target_key: str
+    category: str
+    tip_path: str
+    created_at: str
+    updated_at: str
+    entry_date: str | None = None
+    tip_seq: int = 0
+    last_written_hash: str | None = None
+
+
+@dataclass
 class VaultEntryRecord:
     entry_id: str
+    target_key: str
     page_id: str
     entry_index: int
     entry_type: str
     category: str
     text: str
     symbol_raw: str
-    obsidian_note_path: str
-    obsidian_block_id: str
     updated_at: str
     entry_date: str | None = None
     migration_state: str | None = None
-    needs_review: bool = False
-    status: str = STATUS_SYSTEM_OWNED
-    last_written_text: str | None = None
-    last_seen_source_text: str | None = None
+    section: str = "Entries"
 
 
 class StateDB:
@@ -182,10 +198,11 @@ class StateDB:
             """
             INSERT INTO pages (
                 page_id, note_id, page_number, page_content_sha256,
-                htr_json, htr_confidence_avg, review_needed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                default_target_path, htr_json, htr_confidence_avg, review_needed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(page_id) DO UPDATE SET
                 page_content_sha256 = excluded.page_content_sha256,
+                default_target_path = excluded.default_target_path,
                 htr_json = excluded.htr_json,
                 htr_confidence_avg = excluded.htr_confidence_avg,
                 review_needed = excluded.review_needed
@@ -195,6 +212,7 @@ class StateDB:
                 page.note_id,
                 page.page_number,
                 page.page_content_sha256,
+                page.default_target_path,
                 page.htr_json,
                 page.htr_confidence_avg,
                 int(page.review_needed),
@@ -212,64 +230,139 @@ class StateDB:
         ).fetchall()
         return [_row_to_page(r) for r in rows]
 
-    # -- vault_entries -------------------------------------------------------------
+    # -- targets -------------------------------------------------------------------
 
-    def upsert_vault_entry(self, entry: VaultEntryRecord) -> None:
+    def upsert_target(self, target: TargetRecord) -> None:
+        existing = self.get_target(target.target_key)
+        created_at = existing.created_at if existing else target.created_at
         self._conn.execute(
             """
-            INSERT INTO vault_entries (
-                entry_id, page_id, entry_index, entry_type, entry_date, category,
-                migration_state, text, symbol_raw, obsidian_note_path,
-                obsidian_block_id, needs_review, updated_at, status,
-                last_written_text, last_seen_source_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(entry_id) DO UPDATE SET
-                entry_type = excluded.entry_type,
-                entry_date = excluded.entry_date,
+            INSERT INTO targets (
+                target_key, category, entry_date, tip_path, tip_seq,
+                last_written_hash, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(target_key) DO UPDATE SET
                 category = excluded.category,
-                migration_state = excluded.migration_state,
-                text = excluded.text,
-                symbol_raw = excluded.symbol_raw,
-                obsidian_note_path = excluded.obsidian_note_path,
-                obsidian_block_id = excluded.obsidian_block_id,
-                needs_review = excluded.needs_review,
-                updated_at = excluded.updated_at,
-                status = excluded.status,
-                last_written_text = excluded.last_written_text,
-                last_seen_source_text = excluded.last_seen_source_text
+                entry_date = excluded.entry_date,
+                tip_path = excluded.tip_path,
+                tip_seq = excluded.tip_seq,
+                last_written_hash = excluded.last_written_hash,
+                updated_at = excluded.updated_at
             """,
             (
-                entry.entry_id,
-                entry.page_id,
-                entry.entry_index,
-                entry.entry_type,
-                entry.entry_date,
-                entry.category,
-                entry.migration_state,
-                entry.text,
-                entry.symbol_raw,
-                entry.obsidian_note_path,
-                entry.obsidian_block_id,
-                int(entry.needs_review),
-                entry.updated_at,
-                entry.status,
-                entry.last_written_text,
-                entry.last_seen_source_text,
+                target.target_key,
+                target.category,
+                target.entry_date,
+                target.tip_path,
+                target.tip_seq,
+                target.last_written_hash,
+                created_at,
+                target.updated_at,
             ),
         )
         self._conn.commit()
 
-    def get_vault_entry(self, entry_id: str) -> VaultEntryRecord | None:
+    def get_target(self, target_key: str) -> TargetRecord | None:
         row = self._conn.execute(
-            "SELECT * FROM vault_entries WHERE entry_id = ?", (entry_id,)
+            "SELECT * FROM targets WHERE target_key = ?", (target_key,)
         ).fetchone()
-        return _row_to_entry(row) if row else None
+        return _row_to_target(row) if row else None
 
-    def get_vault_entries_for_page(self, page_id: str) -> list[VaultEntryRecord]:
+    # -- vault_entries -------------------------------------------------------------
+
+    def replace_page_entries_for_target(
+        self, target_key: str, page_id: str, entries: list[VaultEntryRecord]
+    ) -> None:
+        """Upsert this page's current entries for `target_key`, pruning any of this
+        page's previously-recorded entries for this target that are no longer
+        present (a line dropped from a re-transcribed page disappears from the next
+        regeneration of an untouched tip)."""
+        keep_ids = [e.entry_id for e in entries]
+        for entry in entries:
+            self._conn.execute(
+                """
+                INSERT INTO vault_entries (
+                    entry_id, target_key, page_id, entry_index, entry_type,
+                    entry_date, category, migration_state, section, text,
+                    symbol_raw, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entry_id) DO UPDATE SET
+                    target_key = excluded.target_key,
+                    page_id = excluded.page_id,
+                    entry_index = excluded.entry_index,
+                    entry_type = excluded.entry_type,
+                    entry_date = excluded.entry_date,
+                    category = excluded.category,
+                    migration_state = excluded.migration_state,
+                    section = excluded.section,
+                    text = excluded.text,
+                    symbol_raw = excluded.symbol_raw,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    entry.entry_id,
+                    entry.target_key,
+                    entry.page_id,
+                    entry.entry_index,
+                    entry.entry_type,
+                    entry.entry_date,
+                    entry.category,
+                    entry.migration_state,
+                    entry.section,
+                    entry.text,
+                    entry.symbol_raw,
+                    entry.updated_at,
+                ),
+            )
+        if keep_ids:
+            placeholders = ",".join("?" * len(keep_ids))
+            self._conn.execute(
+                f"""
+                DELETE FROM vault_entries
+                WHERE page_id = ? AND target_key = ? AND entry_id NOT IN ({placeholders})
+                """,
+                (page_id, target_key, *keep_ids),
+            )
+        else:
+            self._conn.execute(
+                "DELETE FROM vault_entries WHERE page_id = ? AND target_key = ?",
+                (page_id, target_key),
+            )
+        self._conn.commit()
+
+    def get_vault_entries_for_target(self, target_key: str) -> list[VaultEntryRecord]:
         rows = self._conn.execute(
-            "SELECT * FROM vault_entries WHERE page_id = ? ORDER BY entry_index", (page_id,)
+            "SELECT * FROM vault_entries WHERE target_key = ? ORDER BY seq", (target_key,)
         ).fetchall()
         return [_row_to_entry(r) for r in rows]
+
+    def get_contributing_pages(self, target_key: str) -> list[tuple[str, int]]:
+        """Distinct (note_id, page_number) pairs that have contributed any entry to
+        this target — for `source_notes` frontmatter provenance."""
+        rows = self._conn.execute(
+            """
+            SELECT DISTINCT p.note_id, p.page_number
+            FROM vault_entries v JOIN pages p ON v.page_id = p.page_id
+            WHERE v.target_key = ?
+            ORDER BY p.note_id, p.page_number
+            """,
+            (target_key,),
+        ).fetchall()
+        return [(r["note_id"], r["page_number"]) for r in rows]
+
+    def get_origin_pages(self, target_key: str) -> list[tuple[str, int]]:
+        """Distinct (note_id, page_number) pairs for which this target is the page's
+        *origin* (not a migration destination) — for source-image embeds only."""
+        rows = self._conn.execute(
+            """
+            SELECT DISTINCT p.note_id, p.page_number
+            FROM vault_entries v JOIN pages p ON v.page_id = p.page_id
+            WHERE v.target_key = ? AND p.default_target_path = ?
+            ORDER BY p.note_id, p.page_number
+            """,
+            (target_key, target_key),
+        ).fetchall()
+        return [(r["note_id"], r["page_number"]) for r in rows]
 
 
 def _row_to_note(row: sqlite3.Row) -> NoteRecord:
@@ -292,28 +385,38 @@ def _row_to_page(row: sqlite3.Row) -> PageRecord:
         note_id=row["note_id"],
         page_number=row["page_number"],
         page_content_sha256=row["page_content_sha256"],
+        default_target_path=row["default_target_path"],
         htr_json=row["htr_json"],
         htr_confidence_avg=row["htr_confidence_avg"],
         review_needed=bool(row["review_needed"]),
     )
 
 
+def _row_to_target(row: sqlite3.Row) -> TargetRecord:
+    return TargetRecord(
+        target_key=row["target_key"],
+        category=row["category"],
+        entry_date=row["entry_date"],
+        tip_path=row["tip_path"],
+        tip_seq=row["tip_seq"],
+        last_written_hash=row["last_written_hash"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def _row_to_entry(row: sqlite3.Row) -> VaultEntryRecord:
     return VaultEntryRecord(
         entry_id=row["entry_id"],
+        target_key=row["target_key"],
         page_id=row["page_id"],
         entry_index=row["entry_index"],
         entry_type=row["entry_type"],
         entry_date=row["entry_date"],
         category=row["category"],
         migration_state=row["migration_state"],
+        section=row["section"],
         text=row["text"],
         symbol_raw=row["symbol_raw"],
-        obsidian_note_path=row["obsidian_note_path"],
-        obsidian_block_id=row["obsidian_block_id"],
-        needs_review=bool(row["needs_review"]),
         updated_at=row["updated_at"],
-        status=row["status"],
-        last_written_text=row["last_written_text"],
-        last_seen_source_text=row["last_seen_source_text"],
     )

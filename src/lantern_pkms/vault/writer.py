@@ -1,57 +1,38 @@
 """Idempotent, human-edit-safe writer for Lantern vault notes.
 
-This is the highest-risk correctness surface in lantern-pkms (see the plan's "Human-edit
-safety (ownership handoff)" section). Core guarantees:
-
-- A line is never overwritten once a human has edited it (first divergence from what
-  the system last wrote permanently hands that line's ownership to the human).
-- A line the system wrote is never resurrected once a human deletes it.
-- Files are located by frontmatter content (lantern_pkms.source_notes), not a trusted
-  stored path, so renaming/reorganizing a file in Obsidian doesn't break tracking.
-- Frontmatter is merged under a single `lantern_pkms:` namespace key; every other
-  frontmatter field is exclusively the human's and is never inspected or altered.
-- A real conflict (human edited a line, and the source later changed too) is flagged
-  under "Needs Review" rather than silently dropped — once per new divergence.
+Whole-file granularity: a vault note is either fully system-owned (byte-identical,
+modulo the `last_synced` timestamp, to what the system last wrote) or fully
+human-owned. An untouched note is safe to blow away and fully regenerate from every
+entry accumulated for its target in SQLite (state/db.py) — it's a projection, not an
+incrementally-merged artifact. The moment a note is touched, it's frozen forever:
+sync never writes to it again. Instead, new content forks into a new file (e.g.
+"Backlog (cont. 1).md") that links back to it, and future syncs write to that new
+file — the current "chain tip" — until it too gets edited.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from lantern_pkms.state.db import (
-    STATUS_SYSTEM_OWNED,
-    STATUS_USER_DELETED,
-    STATUS_USER_MODIFIED,
-    StateDB,
-    VaultEntryRecord,
-)
+from lantern_pkms.state.db import StateDB, TargetRecord, VaultEntryRecord
 
 FRONTMATTER_KEY = "lantern_pkms"
-BEGIN_MARK = "<!-- lantern-pkms:begin -->"
-END_MARK = "<!-- lantern-pkms:end -->"
 
-# "Entries" is the single nested outline every ordinary line renders into, in
-# original page order/indentation — no header is printed for it, since it's the
-# note's default/only content (see issue #2: bucketing entries into separate
-# Tasks/Events/Notes/Mood sections loses which line belongs under which). "Needs
-# Review" stays a separate, headed section — it's a data-quality flag, not a
-# content category.
 SECTION_ORDER = ["Entries", "Needs Review"]
 _SECTION_HEADERS = {"Needs Review": "## ⚠️ Needs Review"}
-_HEADER_TO_SECTION = {v: k for k, v in _SECTION_HEADERS.items()}
 
-_BLOCK_REF_RE = re.compile(r"\^([A-Za-z0-9_-]+)\s*$")
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.DOTALL)
 
 
 @dataclass
 class RenderedLine:
-    """One entry ready to be merged into a vault file for a given page."""
+    """One entry ready to be recorded against a target for the page being synced."""
 
     block_id: str
     section: str  # one of SECTION_ORDER
@@ -61,28 +42,11 @@ class RenderedLine:
 
 
 @dataclass
-class ManagedLine:
-    section: str
-    text: str  # full rendered line, including " ^block_id"
-
-
-@dataclass
-class ParsedNote:
-    frontmatter: dict
-    pre_text: str
-    post_text: str
-    lines_by_block: dict[str, ManagedLine] = field(default_factory=dict)
-
-
-@dataclass
 class SyncOutcome:
-    created: list[str] = field(default_factory=list)
-    updated: list[str] = field(default_factory=list)
-    locked_unchanged: list[str] = field(default_factory=list)
-    flagged_conflicts: list[str] = field(default_factory=list)
-    skipped_deleted: list[str] = field(default_factory=list)
-    resolved_path: str = ""
+    resolved_path: str
     created_file: bool = False
+    forked: bool = False
+    forked_from: str | None = None
 
 
 def block_ref(block_id: str) -> str:
@@ -90,7 +54,7 @@ def block_ref(block_id: str) -> str:
 
 
 # --------------------------------------------------------------------------------
-# Parsing
+# Frontmatter helpers
 # --------------------------------------------------------------------------------
 
 
@@ -106,100 +70,90 @@ def _split_frontmatter(text: str) -> tuple[dict, str]:
     return data, body
 
 
-def _extract_managed_region(body: str) -> tuple[str, str, str]:
-    begin = body.find(BEGIN_MARK)
-    end = body.find(END_MARK)
-    if begin == -1 or end == -1 or end < begin:
-        # No managed region yet — treat entire body as "post" content so a fresh
-        # managed region gets inserted at the top, above any existing human content.
-        return "", "", body
-    pre = body[:begin]
-    managed = body[begin + len(BEGIN_MARK) : end]
-    post = body[end + len(END_MARK) :]
-    return pre, managed, post
-
-
-def parse_note(text: str) -> ParsedNote:
+def _content_hash(text: str) -> str:
+    """Hash a rendered file's content for touch-detection, with the auto-updated
+    `last_synced` timestamp stripped so its own churn never looks like a human edit."""
     frontmatter, body = _split_frontmatter(text)
-    pre, managed_text, post = _extract_managed_region(body)
-
-    lines_by_block: dict[str, ManagedLine] = {}
-    section = SECTION_ORDER[0]
-    for raw_line in managed_text.splitlines():
-        stripped = raw_line.strip()
-        if stripped in _HEADER_TO_SECTION:
-            section = _HEADER_TO_SECTION[stripped]
-            continue
-        if not stripped:
-            continue
-        m = _BLOCK_REF_RE.search(stripped)
-        if m:
-            lines_by_block[m.group(1)] = ManagedLine(section=section, text=raw_line.rstrip())
-
-    return ParsedNote(frontmatter=frontmatter, pre_text=pre, post_text=post, lines_by_block=lines_by_block)
+    meta = dict(frontmatter.get(FRONTMATTER_KEY) or {})
+    meta.pop("last_synced", None)
+    frontmatter = dict(frontmatter)
+    frontmatter[FRONTMATTER_KEY] = meta
+    canonical = yaml.safe_dump(frontmatter, sort_keys=True, allow_unicode=True) + "\x00" + body
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # --------------------------------------------------------------------------------
-# Rendering
+# Rendering — pure projection of accumulated entries for a target
 # --------------------------------------------------------------------------------
 
 
-def _render_managed_region(lines_by_block: dict[str, ManagedLine]) -> str:
+def render_target_file(
+    target_key: str,
+    entries: list[VaultEntryRecord],
+    contributing_pages: list[tuple[str, int]],
+    origin_pages: list[tuple[str, int]],
+    now_iso: str,
+    continued_from: str | None = None,
+) -> str:
+    """`contributing_pages` (all pages with any entry landing here, for provenance)
+    and `origin_pages` (only pages whose *default* target this is, for source-image
+    embeds — a migration destination doesn't get the source page's image) are
+    intentionally separate; see state/db.py's get_contributing_pages/get_origin_pages."""
+    meta: dict = {"target_key": target_key, "last_synced": now_iso}
+    if continued_from:
+        meta["continued_from"] = continued_from
+    meta["source_notes"] = _render_source_notes(contributing_pages)
+    frontmatter = {FRONTMATTER_KEY: meta}
+    fm_yaml = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
+
     by_section: dict[str, list[str]] = {s: [] for s in SECTION_ORDER}
-    for line in lines_by_block.values():
-        by_section.setdefault(line.section, []).append(line.text)
+    for entry in entries:
+        line = f"{entry.text} {block_ref(entry.entry_id)}"
+        by_section.setdefault(entry.section, []).append(line)
 
-    parts = [BEGIN_MARK]
+    body_parts: list[str] = []
+    if continued_from:
+        continued_stem = Path(continued_from).stem
+        body_parts.append(f"*Continued from [[{continued_stem}]]*")
     for section in SECTION_ORDER:
         texts = by_section.get(section) or []
         if not texts:
             continue
         header = _SECTION_HEADERS.get(section)
         if header:
-            parts.append(header)
-        parts.extend(texts)
-        parts.append("")
-    if parts[-1] == "":
-        parts.pop()
-    parts.append(END_MARK)
-    return "\n".join(parts)
+            body_parts.append(header)
+        body_parts.extend(texts)
 
+    if origin_pages:
+        from lantern_pkms.taxonomy import source_page_path
 
-def _render_note(parsed: ParsedNote, now_iso: str) -> str:
-    frontmatter = dict(parsed.frontmatter)
-    lantern_pkms_meta = dict(frontmatter.get(FRONTMATTER_KEY) or {})
-    lantern_pkms_meta["last_synced"] = now_iso
-    frontmatter[FRONTMATTER_KEY] = lantern_pkms_meta
+        embeds = "\n".join(f"![[{source_page_path(nid, pn)}]]" for nid, pn in origin_pages)
+        body_parts.append(f"## Source Pages\n{embeds}")
 
-    fm_yaml = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
-    managed = _render_managed_region(parsed.lines_by_block)
-
-    pre = parsed.pre_text.strip("\n")
-    post = parsed.post_text.strip("\n")
-
+    body = "\n\n".join(body_parts)
     sections = [f"---\n{fm_yaml}\n---"]
-    if pre:
-        sections.append(pre)
-    sections.append(managed)
-    if post:
-        sections.append(post)
+    if body:
+        sections.append(body)
     return "\n\n".join(sections) + "\n"
 
 
-def render_conflict_note(block_id: str, new_source_text: str) -> str:
-    return f"- Source changed after you edited `^{block_id}` — new source text: “{new_source_text}”"
+def _render_source_notes(contributing_pages: list[tuple[str, int]]) -> list[dict]:
+    by_note: dict[str, set[int]] = {}
+    for note_id, page_number in contributing_pages:
+        by_note.setdefault(note_id, set()).add(page_number)
+    return [
+        {"supernote_id": note_id, "pages": sorted(pages)} for note_id, pages in sorted(by_note.items())
+    ]
 
 
 # --------------------------------------------------------------------------------
-# File location (by content, not trusted path — see module docstring)
+# File location
 # --------------------------------------------------------------------------------
 
 
-def locate_existing_file(vault_root: Path, note_id: str) -> Path | None:
-    """Find the vault file whose frontmatter already references this note_id, if any.
-
-    Cheap full-vault frontmatter scan — acceptable at vault scale (a few thousand
-    files, once per run). Returns None if no file references this note yet.
+def _locate_by_frontmatter(vault_root: Path, target_key: str) -> Path | None:
+    """Narrow fallback scan: only used when the DB's tip_path is missing on disk, to
+    tolerate a rename of an untouched tip (README's "renames don't break tracking").
     """
     for path in vault_root.rglob("*.md"):
         try:
@@ -207,11 +161,37 @@ def locate_existing_file(vault_root: Path, note_id: str) -> Path | None:
         except OSError:
             continue
         frontmatter, _ = _split_frontmatter(text)
-        lantern_pkms_meta = frontmatter.get(FRONTMATTER_KEY) or {}
-        for source in lantern_pkms_meta.get("source_notes") or []:
-            if str(source.get("supernote_id")) == str(note_id):
-                return path
+        meta = frontmatter.get(FRONTMATTER_KEY) or {}
+        if meta.get("target_key") == target_key:
+            return path
     return None
+
+
+def _fork_path(vault_root: Path, target_key: str, tip_seq: int) -> tuple[str, int]:
+    stem, _, ext = target_key.rpartition(".")
+    seq = tip_seq + 1
+    while True:
+        candidate = f"{stem} (cont. {seq}).{ext}"
+        if not (vault_root / candidate).exists():
+            return candidate, seq
+        seq += 1
+
+
+def _annotate_forked_from_tip(vault_root: Path, old_rel_path: str, new_rel_path: str) -> None:
+    """One-time backlink write into a note that just got forked away from. Safe
+    despite "never touch a human-edited file": once forked, no future sync ever
+    reads or touch-checks this file's tip_path again."""
+    old_abs = vault_root / old_rel_path
+    text = old_abs.read_text()
+    frontmatter, body = _split_frontmatter(text)
+    meta = dict(frontmatter.get(FRONTMATTER_KEY) or {})
+    meta["continued_in"] = new_rel_path
+    frontmatter = dict(frontmatter)
+    frontmatter[FRONTMATTER_KEY] = meta
+    fm_yaml = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
+    new_stem = Path(new_rel_path).stem
+    body = body.rstrip("\n") + f"\n\n---\n*Continued in [[{new_stem}]]*\n"
+    old_abs.write_text(f"---\n{fm_yaml}\n---\n\n{body.lstrip(chr(10))}")
 
 
 # --------------------------------------------------------------------------------
@@ -219,144 +199,41 @@ def locate_existing_file(vault_root: Path, note_id: str) -> Path | None:
 # --------------------------------------------------------------------------------
 
 
-def _new_note_template() -> str:
-    return f"---\n{FRONTMATTER_KEY}: {{}}\n---\n\n{BEGIN_MARK}\n{END_MARK}\n"
-
-
-def _add_source_note_ref(parsed: ParsedNote, note_id: str, page_number: int) -> None:
-    meta = dict(parsed.frontmatter.get(FRONTMATTER_KEY) or {})
-    sources = list(meta.get("source_notes") or [])
-    for source in sources:
-        if str(source.get("supernote_id")) == str(note_id):
-            pages = set(source.get("pages") or [])
-            pages.add(page_number)
-            source["pages"] = sorted(pages)
-            break
-    else:
-        sources.append({"supernote_id": note_id, "pages": [page_number]})
-    meta["source_notes"] = sources
-    parsed.frontmatter[FRONTMATTER_KEY] = meta
-
-
-def _ensure_source_image_embed(parsed: ParsedNote, image_rel_path: str) -> None:
-    embed = f"![[{image_rel_path}]]"
-    if embed in parsed.post_text:
-        return
-    if "## Source Pages" not in parsed.post_text:
-        parsed.post_text = (parsed.post_text.rstrip("\n") + "\n\n## Source Pages\n").lstrip("\n")
-    parsed.post_text = parsed.post_text.rstrip("\n") + f"\n{embed}\n"
-
-
-def sync_page(
+def sync_target(
     vault_root: Path,
-    default_rel_path: str,
-    note_id: str,
-    page_id: str,
-    page_number: int,
-    entry_date: str | None,
+    target_key: str,
     category: str,
+    entry_date: str | None,
+    page_id: str,
     lines: list[RenderedLine],
     state: StateDB,
     now_iso: str | None = None,
-    source_image_rel_path: str | None = None,
 ) -> SyncOutcome:
-    """Merge freshly transcribed lines for one page into its target vault file.
-
-    Never overwrites a human-edited line (see module docstring). Safe to call
-    repeatedly with the same or updated `lines` — that's the whole point.
-    """
+    """Record this page's entries for `target_key`, then bring the chain tip's vault
+    file up to date: fully regenerate it if untouched, or fork a new tip if a human
+    has edited it since the last sync. Safe to call repeatedly (idempotent)."""
     now_iso = now_iso or datetime.now().astimezone().isoformat()
 
-    existing_path = locate_existing_file(vault_root, note_id)
-    resolved_path = existing_path or (vault_root / default_rel_path)
-    created_file = not resolved_path.exists()
-
-    text = resolved_path.read_text() if not created_file else _new_note_template()
-    parsed = parse_note(text)
-
-    outcome = SyncOutcome(resolved_path=str(resolved_path.relative_to(vault_root)), created_file=created_file)
-
-    for line in lines:
-        rendered_text = f"{line.text} {block_ref(line.block_id)}"
-        prior = state.get_vault_entry(line.block_id)
-        current = parsed.lines_by_block.get(line.block_id)
-
-        if current is None and prior is None:
-            parsed.lines_by_block[line.block_id] = ManagedLine(section=line.section, text=rendered_text)
-            _upsert_state(
-                state, line, page_id, entry_date, category, rendered_text,
-                STATUS_SYSTEM_OWNED, resolved_path, vault_root, now_iso,
-                last_seen_source_text=rendered_text,
-            )
-            outcome.created.append(line.block_id)
-            continue
-
-        if current is None and prior is not None:
-            if prior.status != STATUS_USER_DELETED:
-                _upsert_state(
-                    state, line, page_id, entry_date, category, prior.last_written_text,
-                    STATUS_USER_DELETED, resolved_path, vault_root, now_iso,
-                    last_seen_source_text=prior.last_seen_source_text,
-                )
-            outcome.skipped_deleted.append(line.block_id)
-            continue
-
-        still_system_owned = prior is not None and current.text == prior.last_written_text
-
-        if still_system_owned:
-            parsed.lines_by_block[line.block_id] = ManagedLine(section=line.section, text=rendered_text)
-            _upsert_state(
-                state, line, page_id, entry_date, category, rendered_text,
-                STATUS_SYSTEM_OWNED, resolved_path, vault_root, now_iso,
-                last_seen_source_text=rendered_text,
-            )
-            outcome.updated.append(line.block_id)
-            continue
-
-        # Human has touched this line (current text present and doesn't match what we
-        # last wrote) — permanently locked. Flag a genuinely new divergence once.
-        prior_last_seen = prior.last_seen_source_text if prior else None
-        if rendered_text != prior_last_seen:
-            review_block_id = f"{line.block_id}-conflict-{abs(hash(rendered_text)) % 10_000}"
-            conflict_line = f"{render_conflict_note(line.block_id, line.text)} {block_ref(review_block_id)}"
-            parsed.lines_by_block[review_block_id] = ManagedLine(section="Needs Review", text=conflict_line)
-            outcome.flagged_conflicts.append(line.block_id)
-        else:
-            outcome.locked_unchanged.append(line.block_id)
-
-        _upsert_state(
-            state, line, page_id, entry_date, category,
-            prior.last_written_text if prior else current.text,
-            STATUS_USER_MODIFIED, resolved_path, vault_root, now_iso,
-            last_seen_source_text=rendered_text,
+    target = state.get_target(target_key)
+    if target is None:
+        # vault_entries.target_key is a foreign key into targets(target_key) — the
+        # targets row must exist before any vault_entries insert below.
+        target = TargetRecord(
+            target_key=target_key,
+            category=category,
+            entry_date=entry_date,
+            tip_path=target_key,
+            tip_seq=0,
+            last_written_hash=None,
+            created_at=now_iso,
+            updated_at=now_iso,
         )
+        state.upsert_target(target)
 
-    _add_source_note_ref(parsed, note_id, page_number)
-    if source_image_rel_path:
-        _ensure_source_image_embed(parsed, source_image_rel_path)
-
-    resolved_path.parent.mkdir(parents=True, exist_ok=True)
-    resolved_path.write_text(_render_note(parsed, now_iso))
-
-    return outcome
-
-
-def _upsert_state(
-    state: StateDB,
-    line: RenderedLine,
-    page_id: str,
-    entry_date: str | None,
-    category: str,
-    last_written_text: str | None,
-    status: str,
-    resolved_path: Path,
-    vault_root: Path,
-    now_iso: str,
-    last_seen_source_text: str | None,
-) -> None:
-    state.upsert_vault_entry(
+    entries = [
         VaultEntryRecord(
             entry_id=line.block_id,
+            target_key=target_key,
             page_id=page_id,
             entry_index=line.entry_index,
             entry_type=line.entry_type,
@@ -364,12 +241,80 @@ def _upsert_state(
             category=category,
             text=line.text,
             symbol_raw="",
-            obsidian_note_path=str(resolved_path.relative_to(vault_root)),
-            obsidian_block_id=line.block_id,
-            needs_review=False,
+            section=line.section,
             updated_at=now_iso,
-            status=status,
-            last_written_text=last_written_text,
-            last_seen_source_text=last_seen_source_text,
         )
+        for line in lines
+    ]
+    state.replace_page_entries_for_target(target_key, page_id, entries)
+
+    tip_abs = vault_root / target.tip_path
+    touched = False
+    forked_from: str | None = None
+
+    if target.last_written_hash is not None:
+        if not tip_abs.exists():
+            fallback = _locate_by_frontmatter(vault_root, target_key)
+            if fallback is not None:
+                target.tip_path = str(fallback.relative_to(vault_root))
+                tip_abs = fallback
+            else:
+                touched = True  # can't verify identity — fork rather than guess
+        if not touched:
+            touched = _content_hash(tip_abs.read_text()) != target.last_written_hash
+
+    created_file = target.last_written_hash is None
+
+    if touched:
+        new_rel_path, new_seq = _fork_path(vault_root, target_key, target.tip_seq)
+        old_tip_abs = vault_root / target.tip_path
+        if old_tip_abs.exists():
+            # Only annotate a backlink if the old tip is actually still there — it
+            # may be missing entirely (moved/deleted outside Obsidian), in which
+            # case there's nothing to annotate.
+            _annotate_forked_from_tip(vault_root, target.tip_path, new_rel_path)
+            forked_from = target.tip_path
+        target.tip_path = new_rel_path
+        target.tip_seq = new_seq
+        tip_abs = vault_root / target.tip_path
+        created_file = True
+
+    all_entries = state.get_vault_entries_for_target(target_key)
+    contributing_pages = state.get_contributing_pages(target_key)
+    origin_pages = state.get_origin_pages(target_key)
+
+    rendered = render_target_file(
+        target_key=target_key,
+        entries=all_entries,
+        contributing_pages=contributing_pages,
+        origin_pages=origin_pages,
+        now_iso=now_iso,
+        continued_from=forked_from if touched else _current_continued_from(target, vault_root),
     )
+
+    tip_abs.parent.mkdir(parents=True, exist_ok=True)
+    tip_abs.write_text(rendered)
+
+    target.category = category
+    target.entry_date = entry_date
+    target.last_written_hash = _content_hash(rendered)
+    target.updated_at = now_iso
+    state.upsert_target(target)
+
+    return SyncOutcome(
+        resolved_path=target.tip_path,
+        created_file=created_file,
+        forked=touched,
+        forked_from=forked_from,
+    )
+
+
+def _current_continued_from(target: TargetRecord, vault_root: Path) -> str | None:
+    """Preserve an existing `continued_from` when re-rendering an untouched tip that
+    was itself created by a prior fork."""
+    tip_abs = vault_root / target.tip_path
+    if not tip_abs.exists():
+        return None
+    frontmatter, _ = _split_frontmatter(tip_abs.read_text())
+    meta = frontmatter.get(FRONTMATTER_KEY) or {}
+    return meta.get("continued_from")

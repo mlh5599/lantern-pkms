@@ -1,14 +1,15 @@
 """Integration-style test for main._ingest_page.
 
 Regression test: this is the exact path that broke live against real notes —
-_ingest_page called sync_page() (which inserts a vault_entries row referencing
+_ingest_page called sync_target() (which inserts a vault_entries row referencing
 pages.page_id) before it called state.upsert_page() (which creates that pages
 row), so every single page hit `sqlite3.IntegrityError: FOREIGN KEY constraint
 failed` since foreign keys are enforced (state/db.py sets PRAGMA foreign_keys =
 ON). No existing test caught this because test_vault_writer_idempotency.py and
 test_state_db.py always pre-create the pages row by hand before exercising
-sync_page/upsert_vault_entry directly — none of them go through _ingest_page's
-own ordering of those two calls, which is exactly where the bug was. Uses a
+sync_target/replace_page_entries_for_target directly — none of them go through
+_ingest_page's own ordering of those two calls, which is exactly where the bug
+was. Uses a
 real StateDB (so FK enforcement is actually active) and a fake HTR client, so
 it needs no live Supernote/Ollama, unlike the rest of the orchestration layer
 (see main.py's module docstring).
