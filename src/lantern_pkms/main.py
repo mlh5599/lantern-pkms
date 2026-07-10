@@ -247,6 +247,22 @@ def _ingest_page(
 
     default_path = taxonomy.default_target_path(category, year, title, entry_date)
 
+    # vault_entries.page_id is a foreign key into pages(page_id) — the pages row must
+    # exist before sync_page() below inserts any vault_entries referencing it, or the
+    # insert fails with a FOREIGN KEY constraint error.
+    avg_confidence = sum(c.confidence for c in classified) / len(classified) if classified else None
+    state.upsert_page(
+        PageRecord(
+            page_id=page_id,
+            note_id=entry.id,
+            page_number=page_number,
+            page_content_sha256=page_hash,
+            htr_json=json.dumps([c.model_dump() for c in classified]),
+            htr_confidence_avg=avg_confidence,
+            review_needed=any(c.needs_review for c in classified),
+        )
+    )
+
     rendered_by_target: dict[str, list[RenderedLine]] = {}
     for i, c in enumerate(classified):
         block_id = make_block_id(entry.id, page_number, i)
@@ -270,18 +286,6 @@ def _ingest_page(
     if flagged_count:
         htr_low_confidence_flagged_total.inc(flagged_count)
 
-    avg_confidence = sum(c.confidence for c in classified) / len(classified) if classified else None
-    state.upsert_page(
-        PageRecord(
-            page_id=page_id,
-            note_id=entry.id,
-            page_number=page_number,
-            page_content_sha256=page_hash,
-            htr_json=json.dumps([c.model_dump() for c in classified]),
-            htr_confidence_avg=avg_confidence,
-            review_needed=any(c.needs_review for c in classified),
-        )
-    )
     htr_pages_processed_total.inc()
 
 
