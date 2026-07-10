@@ -50,6 +50,12 @@ class OllamaHTRClient:
             "images": [base64.b64encode(image_png_bytes).decode("ascii")],
             "format": PAGE_LINES_SCHEMA,
             "stream": False,
+            # qwen3-vl is a hybrid reasoning model — left to its default, it puts the
+            # actual structured output in the 'thinking' field and leaves 'response'
+            # empty, which looks like a failed call. Disabling thinking makes it put
+            # the answer directly in 'response', and is faster besides (skips
+            # generating the reasoning trace).
+            "think": False,
         }
         if self._force_cpu:
             payload["options"] = {"num_gpu": 0}
@@ -58,9 +64,11 @@ class OllamaHTRClient:
         resp.raise_for_status()
         data = resp.json()
 
-        raw_response = data.get("response")
+        # Fall back to 'thinking' if 'response' is still empty — belt-and-suspenders
+        # in case a model/version ignores think=False and only ever fills 'thinking'.
+        raw_response = data.get("response") or data.get("thinking")
         if not raw_response:
-            raise OllamaError(f"Ollama response had no 'response' field: {data!r}")
+            raise OllamaError(f"Ollama response had no 'response' or 'thinking' field: {data!r}")
 
         try:
             parsed = json.loads(raw_response)

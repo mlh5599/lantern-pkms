@@ -49,6 +49,7 @@ def test_transcribe_page_parses_lines_and_forces_cpu() -> None:
     sent_body = json.loads(route.calls.last.request.content)
     assert sent_body["model"] == "qwen3-vl:8b"
     assert sent_body["options"] == {"num_gpu": 0}
+    assert sent_body["think"] is False
 
     # images should be base64 of the raw bytes we passed in
     import base64
@@ -74,6 +75,31 @@ def test_missing_response_field_raises() -> None:
     client = OllamaHTRClient(BASE_URL, model="qwen3-vl:8b")
     with pytest.raises(OllamaError):
         client.transcribe_page(b"bytes", prompt="p")
+
+
+@respx.mock
+def test_falls_back_to_thinking_field_when_response_empty() -> None:
+    # Regression test: qwen3-vl is a hybrid reasoning model. Even with think=False
+    # requested, older/other Ollama versions may still only populate 'thinking' and
+    # leave 'response' empty — confirmed live against a real qwen3-vl:8b call where
+    # the full valid JSON transcription landed in 'thinking' while 'response' was "".
+    respx.post(f"{BASE_URL}/api/generate").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "response": "",
+                "thinking": json.dumps(
+                    {"lines": [{"raw_symbol": "dash", "text": "Note from thinking", "confidence": 0.7}]}
+                ),
+                "done": True,
+            },
+        )
+    )
+    client = OllamaHTRClient(BASE_URL, model="qwen3-vl:8b")
+    lines = client.transcribe_page(b"bytes", prompt="p")
+
+    assert len(lines) == 1
+    assert lines[0].text == "Note from thinking"
 
 
 @respx.mock
