@@ -115,9 +115,12 @@ def render_target_file(
         if not texts:
             continue
         header = _SECTION_HEADERS.get(section)
-        if header:
-            body_parts.append(header)
-        body_parts.extend(texts)
+        block_lines = ([header] if header else []) + texts
+        # Single newline within a section so sibling/nested entries stay dense;
+        # "\n\n" (below) is reserved for separating distinct structural blocks —
+        # see issue #5, where a blank line before every entry (including nested
+        # ones) also made Obsidian misrender indented bullets as code blocks.
+        body_parts.append("\n".join(block_lines))
 
     if origin_pages:
         from lantern_pkms.taxonomy import source_page_path
