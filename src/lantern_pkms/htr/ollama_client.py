@@ -13,8 +13,8 @@ import json
 
 import httpx
 
-from home_pkms.htr.schema import PAGE_LINES_SCHEMA
-from home_pkms.structuring.symbol_mapping import VLMLine
+from lantern_pkms.htr.schema import PAGE_LINES_SCHEMA
+from lantern_pkms.structuring.symbol_mapping import VLMLine
 
 
 class OllamaError(Exception):

@@ -65,8 +65,8 @@ STATUS_USER_DELETED = "user_deleted"
 
 
 def make_block_id(note_id: str, page_number: int, entry_index: int) -> str:
-    """Stable block id for an entry, e.g. 'hp-1234-3-0' (Obsidian ref: ^hp-1234-3-0)."""
-    return f"hp-{note_id}-{page_number}-{entry_index}"
+    """Stable block id for an entry, e.g. 'lp-1234-3-0' (Obsidian ref: ^lp-1234-3-0)."""
+    return f"lp-{note_id}-{page_number}-{entry_index}"
 
 
 @dataclass

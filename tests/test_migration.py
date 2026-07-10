@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from home_pkms.structuring.migration import compute_migration, is_migration_state
+from lantern_pkms.structuring.migration import compute_migration, is_migration_state
 
 
 def test_non_migration_state_returns_none() -> None:

@@ -1,6 +1,6 @@
 """Settings — env vars only, per the plan's "public repo never contains a hostname,
 IP, or credential" rule. Non-secret values come from Ansible vars.yml; secrets from
-OpenBao. Locally, export HOME_PKMS_* env vars or use a .env file (untracked).
+OpenBao. Locally, export LANTERN_PKMS_* env vars or use a .env file (untracked).
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="HOME_PKMS_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="LANTERN_PKMS_", env_file=".env", extra="ignore")
 
     ollama_host: str
     ollama_model: str = "qwen3-vl:8b"
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     supernote_username: str
     supernote_password: str
 
-    lantern_vault_path: Path
+    vault_path: Path
     state_db_path: Path = Path("/data/state.db")
     symbol_mapping_path: Path = Path("/config/symbol-mapping.yml")
     taxonomy_config_path: Path = Path("/config/taxonomy.yml")

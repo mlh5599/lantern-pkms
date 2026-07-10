@@ -1,6 +1,6 @@
 # Default bullet-journal symbol semantics, externalized so they can be tuned to your
 # own convention without a code change or rebuild. Copy this file, edit your copy,
-# and point HOME_PKMS_SYMBOL_MAPPING_PATH at it.
+# and point LANTERN_PKMS_SYMBOL_MAPPING_PATH at it.
 #
 # The crossed_out / struck_through split below is a best guess pending empirical
 # confirmation against real sample pages (see htr_bench.py / Phase 0 verification) —

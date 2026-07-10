@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from home_pkms.structuring.symbol_mapping import SymbolMappingConfig, VLMLine, classify
+from lantern_pkms.structuring.symbol_mapping import SymbolMappingConfig, VLMLine, classify
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "symbol-mapping.default.yml"
 

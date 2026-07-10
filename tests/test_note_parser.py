@@ -2,7 +2,7 @@ import io
 
 from PIL import Image
 
-from home_pkms.supernote import note_parser
+from lantern_pkms.supernote import note_parser
 
 
 class _FakeMetadata:

@@ -3,7 +3,7 @@
 This is intentionally not an LLM step: once the vision model has extracted what
 symbol/marks are on the page, deciding what they *mean* is a fixed lookup table,
 externalized in config/symbol-mapping.default.yml so Mike can tune it without a
-rebuild. See the "HTR + structuring pipeline" section of the home-pkms v1 plan.
+rebuild. See the "HTR + structuring pipeline" section of the lantern-pkms v1 plan.
 """
 
 from __future__ import annotations

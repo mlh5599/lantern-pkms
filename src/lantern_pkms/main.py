@@ -2,7 +2,7 @@
 
 This is orchestration glue over already-independently-tested pieces (client,
 note_parser, ollama_client, symbol_mapping, migration, vault.writer, taxonomy). It's
-the least independently-testable part of home-pkms since a real end-to-end run needs
+the least independently-testable part of lantern-pkms since a real end-to-end run needs
 live Supernote credentials, a running Ollama, and a real vault — that's exactly what
 Phase 0 (scripts/htr_bench.py) is for. Pure helper functions below (text rendering)
 are unit tested; the orchestration functions are exercised by Phase 0, not by the
@@ -17,10 +17,10 @@ import logging
 import time
 from datetime import date, datetime
 
-from home_pkms.config import Settings
-from home_pkms.htr.ollama_client import OllamaHTRClient
-from home_pkms.htr.prompts import build_transcription_prompt
-from home_pkms.metrics import (
+from lantern_pkms.config import Settings
+from lantern_pkms.htr.ollama_client import OllamaHTRClient
+from lantern_pkms.htr.prompts import build_transcription_prompt
+from lantern_pkms.metrics import (
     htr_low_confidence_flagged_total,
     htr_pages_processed_total,
     last_successful_run_timestamp,
@@ -28,15 +28,15 @@ from home_pkms.metrics import (
     pipeline_errors_total,
     start_metrics_server,
 )
-from home_pkms.state.db import NoteRecord, PageRecord, StateDB, make_block_id
-from home_pkms.structuring.migration import MIGRATED_NEXT_DAY, compute_migration, is_migration_state
-from home_pkms.structuring.symbol_mapping import ClassifiedEntry, SymbolMappingConfig, classify
-from home_pkms.supernote.client import SupernoteClient, SupernoteEntry
-from home_pkms.supernote.note_parser import ParsedNotebook, parse_note_bytes
-from home_pkms.taxonomy import TaxonomyConfig, source_page_path
-from home_pkms.vault.writer import RenderedLine, sync_page
+from lantern_pkms.state.db import NoteRecord, PageRecord, StateDB, make_block_id
+from lantern_pkms.structuring.migration import MIGRATED_NEXT_DAY, compute_migration, is_migration_state
+from lantern_pkms.structuring.symbol_mapping import ClassifiedEntry, SymbolMappingConfig, classify
+from lantern_pkms.supernote.client import SupernoteClient, SupernoteEntry
+from lantern_pkms.supernote.note_parser import ParsedNotebook, parse_note_bytes
+from lantern_pkms.taxonomy import TaxonomyConfig, source_page_path
+from lantern_pkms.vault.writer import RenderedLine, sync_page
 
-logger = logging.getLogger("home_pkms")
+logger = logging.getLogger("lantern_pkms")
 
 _SECTION_FOR_ENTRY_TYPE = {
     "task": "Tasks",
@@ -222,7 +222,7 @@ def _ingest_page(
     classified = [classify(line, symbol_config) for line in vlm_lines]
 
     image_rel_path = source_page_path(entry.id, page_number)
-    image_abs_path = settings.lantern_vault_path / image_rel_path
+    image_abs_path = settings.vault_path / image_rel_path
     image_abs_path.parent.mkdir(parents=True, exist_ok=True)
     image_abs_path.write_bytes(png_bytes)
 
@@ -236,7 +236,7 @@ def _ingest_page(
     flagged_count = 0
     for target_path, lines in rendered_by_target.items():
         outcome = sync_page(
-            vault_root=settings.lantern_vault_path,
+            vault_root=settings.vault_path,
             default_rel_path=target_path,
             note_id=entry.id,
             page_id=page_id,
@@ -270,7 +270,7 @@ def run() -> None:
     logging.basicConfig(level=logging.INFO)
     settings = Settings()
     start_metrics_server(settings.metrics_port)
-    logger.info("home-pkms starting, poll interval %d minutes", settings.poll_interval_minutes)
+    logger.info("lantern-pkms starting, poll interval %d minutes", settings.poll_interval_minutes)
     while True:
         try:
             run_once(settings)

@@ -1,4 +1,4 @@
-# home-pkms
+# lantern-pkms
 
 Automated pipeline: handwritten bullet-journal pages on a self-hosted **Supernote
 Private Cloud** → local handwriting transcription (HTR) via a vision-language model
@@ -61,7 +61,7 @@ flowchart TD
 
     subgraph ai_host["Ollama/ingestion host (your hardware)"]
         direction TB
-        HP["home-pkms-ingestion<br/>(this repo, Docker)"]
+        HP["lantern-pkms-ingestion<br/>(this repo, Docker)"]
         OL["ollama<br/>(CPU-only by default —<br/>GPU stays free for other use)"]
         HP -- "HTTP :11434, structured JSON<br/>num_gpu=0" --> OL
     end
@@ -92,20 +92,20 @@ flowchart LR
 Nothing about this setup is hardcoded — everything below is either an environment
 variable or a YAML config file you can override.
 
-**Environment variables** (`src/home_pkms/config.py`, `HOME_PKMS_` prefix):
+**Environment variables** (`src/lantern_pkms/config.py`, `LANTERN_PKMS_` prefix):
 
 | Variable | Meaning |
 |---|---|
-| `HOME_PKMS_OLLAMA_HOST` | Base URL of your Ollama instance |
-| `HOME_PKMS_OLLAMA_MODEL` | Vision model tag to use for HTR |
-| `HOME_PKMS_SUPERNOTE_CLOUD_URL` | Base URL of your self-hosted Supernote Private Cloud |
-| `HOME_PKMS_SUPERNOTE_USERNAME` / `HOME_PKMS_SUPERNOTE_PASSWORD` | Your Supernote account credentials |
-| `HOME_PKMS_LANTERN_VAULT_PATH` | Path to your Obsidian vault |
-| `HOME_PKMS_STATE_DB_PATH` | Where to keep the SQLite state file |
-| `HOME_PKMS_SYMBOL_MAPPING_PATH` | Path to your symbol-mapping config (see below) |
-| `HOME_PKMS_TAXONOMY_CONFIG_PATH` | Path to your folder-taxonomy config (see below) |
-| `HOME_PKMS_POLL_INTERVAL_MINUTES` | How often to sync (default: nightly) |
-| `HOME_PKMS_METRICS_PORT` | Prometheus `/metrics` port |
+| `LANTERN_PKMS_OLLAMA_HOST` | Base URL of your Ollama instance |
+| `LANTERN_PKMS_OLLAMA_MODEL` | Vision model tag to use for HTR |
+| `LANTERN_PKMS_SUPERNOTE_CLOUD_URL` | Base URL of your self-hosted Supernote Private Cloud |
+| `LANTERN_PKMS_SUPERNOTE_USERNAME` / `LANTERN_PKMS_SUPERNOTE_PASSWORD` | Your Supernote account credentials |
+| `LANTERN_PKMS_VAULT_PATH` | Path to your Obsidian vault |
+| `LANTERN_PKMS_STATE_DB_PATH` | Where to keep the SQLite state file |
+| `LANTERN_PKMS_SYMBOL_MAPPING_PATH` | Path to your symbol-mapping config (see below) |
+| `LANTERN_PKMS_TAXONOMY_CONFIG_PATH` | Path to your folder-taxonomy config (see below) |
+| `LANTERN_PKMS_POLL_INTERVAL_MINUTES` | How often to sync (default: nightly) |
+| `LANTERN_PKMS_METRICS_PORT` | Prometheus `/metrics` port |
 
 **`config/symbol-mapping.default.yml`** — your bullet-journal symbol semantics
 (which mark means task/event/note/mood, what "crossed out" vs. "struck through"
@@ -149,7 +149,7 @@ You can freely edit, annotate, and link ingested notes in Obsidian. The vault wr
   re-ingestion never touches it again.
 - **Deletions are never resurrected.** Delete a line, it stays deleted.
 - **Files are found by content, not a trusted path** — renaming/reorganizing a
-  note in Obsidian doesn't break tracking (frontmatter under a namespaced `home_pkms:`
+  note in Obsidian doesn't break tracking (frontmatter under a namespaced `lantern_pkms:`
   key is what's actually matched on).
 - **Real conflicts are flagged, never silently dropped or overwritten** — if the
   source page changes again after you've already edited that line, it shows up under
@@ -161,7 +161,7 @@ You can freely edit, annotate, and link ingested notes in Obsidian. The vault wr
 config/
 ├── symbol-mapping.default.yml   # tunable symbol → meaning mapping
 └── taxonomy.default.yml          # tunable Supernote folder <-> vault folder mapping
-src/home_pkms/
+src/lantern_pkms/
 ├── main.py                # scheduler loop + orchestration
 ├── config.py               # env-var settings (pydantic-settings)
 ├── taxonomy.py              # config-driven category/path mapping
@@ -217,22 +217,22 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 This is a standard containerized app — build the image and run it with your config:
 
 ```bash
-docker build -t home-pkms .
+docker build -t lantern-pkms .
 docker run -d \
-  -e HOME_PKMS_OLLAMA_HOST=http://your-ollama-host:11434 \
-  -e HOME_PKMS_SUPERNOTE_CLOUD_URL=https://your-supernote-instance.example.com \
-  -e HOME_PKMS_SUPERNOTE_USERNAME=you@example.com \
-  -e HOME_PKMS_SUPERNOTE_PASSWORD=... \
-  -e HOME_PKMS_LANTERN_VAULT_PATH=/vault \
+  -e LANTERN_PKMS_OLLAMA_HOST=http://your-ollama-host:11434 \
+  -e LANTERN_PKMS_SUPERNOTE_CLOUD_URL=https://your-supernote-instance.example.com \
+  -e LANTERN_PKMS_SUPERNOTE_USERNAME=you@example.com \
+  -e LANTERN_PKMS_SUPERNOTE_PASSWORD=... \
+  -e LANTERN_PKMS_VAULT_PATH=/vault \
   -v /path/to/your/obsidian/vault:/vault \
-  -v home-pkms-data:/data \
+  -v lantern-pkms-data:/data \
   -v /path/to/your/config:/config \
-  home-pkms
+  lantern-pkms
 ```
 
 There's also an example production deployment via Ansible in a companion homelab
 infrastructure repo (not included here, since it's specific to one person's
-homelab) — see that repo's `roles/ollama/` and `roles/home_pkms_ingestion/` for a
+homelab) — see that repo's `roles/ollama/` and `roles/lantern_pkms_ingestion/` for a
 reference of how the pieces fit together (OpenBao-backed secrets, systemd-adjacent
 service management, Prometheus/Grafana telemetry, etc.) if you're deploying via
 Ansible yourself.

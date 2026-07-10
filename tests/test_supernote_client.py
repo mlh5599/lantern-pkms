@@ -5,7 +5,7 @@ import httpx
 import pytest
 import respx
 
-from home_pkms.supernote.client import (
+from lantern_pkms.supernote.client import (
     PATH_DOWNLOAD_V3,
     PATH_LIST_FOLDER,
     PATH_LOGIN_EQUIPMENT,

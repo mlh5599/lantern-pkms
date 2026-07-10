@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from home_pkms.taxonomy import TaxonomyConfig, slugify, source_page_path, sources_dir
+from lantern_pkms.taxonomy import TaxonomyConfig, slugify, source_page_path, sources_dir
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "taxonomy.default.yml"
 

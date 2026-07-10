@@ -42,12 +42,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from home_pkms.htr.ollama_client import OllamaHTRClient  # noqa: E402
-from home_pkms.htr.prompts import build_transcription_prompt  # noqa: E402
-from home_pkms.structuring.symbol_mapping import SymbolMappingConfig, classify  # noqa: E402
-from home_pkms.supernote.client import SupernoteClient  # noqa: E402
-from home_pkms.supernote.note_parser import parse_note_bytes  # noqa: E402
-from home_pkms.taxonomy import TaxonomyConfig  # noqa: E402
+from lantern_pkms.htr.ollama_client import OllamaHTRClient  # noqa: E402
+from lantern_pkms.htr.prompts import build_transcription_prompt  # noqa: E402
+from lantern_pkms.structuring.symbol_mapping import SymbolMappingConfig, classify  # noqa: E402
+from lantern_pkms.supernote.client import SupernoteClient  # noqa: E402
+from lantern_pkms.supernote.note_parser import parse_note_bytes  # noqa: E402
+from lantern_pkms.taxonomy import TaxonomyConfig  # noqa: E402
 
 DEFAULT_SYMBOL_CONFIG = Path(__file__).parent.parent / "config" / "symbol-mapping.default.yml"
 DEFAULT_TAXONOMY_CONFIG = Path(__file__).parent.parent / "config" / "taxonomy.default.yml"

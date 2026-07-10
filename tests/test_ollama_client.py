@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from home_pkms.htr.ollama_client import OllamaError, OllamaHTRClient
+from lantern_pkms.htr.ollama_client import OllamaError, OllamaHTRClient
 
 BASE_URL = "http://ollama.example.com:11434"
 

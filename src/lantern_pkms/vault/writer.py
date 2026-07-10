@@ -1,14 +1,14 @@
 """Idempotent, human-edit-safe writer for Lantern vault notes.
 
-This is the highest-risk correctness surface in home-pkms (see the plan's "Human-edit
+This is the highest-risk correctness surface in lantern-pkms (see the plan's "Human-edit
 safety (ownership handoff)" section). Core guarantees:
 
 - A line is never overwritten once a human has edited it (first divergence from what
   the system last wrote permanently hands that line's ownership to the human).
 - A line the system wrote is never resurrected once a human deletes it.
-- Files are located by frontmatter content (home_pkms.source_notes), not a trusted
+- Files are located by frontmatter content (lantern_pkms.source_notes), not a trusted
   stored path, so renaming/reorganizing a file in Obsidian doesn't break tracking.
-- Frontmatter is merged under a single `home_pkms:` namespace key; every other
+- Frontmatter is merged under a single `lantern_pkms:` namespace key; every other
   frontmatter field is exclusively the human's and is never inspected or altered.
 - A real conflict (human edited a line, and the source later changed too) is flagged
   under "Needs Review" rather than silently dropped — once per new divergence.
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-from home_pkms.state.db import (
+from lantern_pkms.state.db import (
     STATUS_SYSTEM_OWNED,
     STATUS_USER_DELETED,
     STATUS_USER_MODIFIED,
@@ -31,9 +31,9 @@ from home_pkms.state.db import (
     VaultEntryRecord,
 )
 
-FRONTMATTER_KEY = "home_pkms"
-BEGIN_MARK = "<!-- home-pkms:begin -->"
-END_MARK = "<!-- home-pkms:end -->"
+FRONTMATTER_KEY = "lantern_pkms"
+BEGIN_MARK = "<!-- lantern-pkms:begin -->"
+END_MARK = "<!-- lantern-pkms:end -->"
 
 SECTION_ORDER = ["Tasks", "Events", "Notes", "Mood", "Needs Review"]
 _SECTION_HEADERS = {s: ("## ⚠️ Needs Review" if s == "Needs Review" else f"## {s}") for s in SECTION_ORDER}
@@ -159,9 +159,9 @@ def _render_managed_region(lines_by_block: dict[str, ManagedLine]) -> str:
 
 def _render_note(parsed: ParsedNote, now_iso: str) -> str:
     frontmatter = dict(parsed.frontmatter)
-    home_pkms_meta = dict(frontmatter.get(FRONTMATTER_KEY) or {})
-    home_pkms_meta["last_synced"] = now_iso
-    frontmatter[FRONTMATTER_KEY] = home_pkms_meta
+    lantern_pkms_meta = dict(frontmatter.get(FRONTMATTER_KEY) or {})
+    lantern_pkms_meta["last_synced"] = now_iso
+    frontmatter[FRONTMATTER_KEY] = lantern_pkms_meta
 
     fm_yaml = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
     managed = _render_managed_region(parsed.lines_by_block)
@@ -199,8 +199,8 @@ def locate_existing_file(vault_root: Path, note_id: str) -> Path | None:
         except OSError:
             continue
         frontmatter, _ = _split_frontmatter(text)
-        home_pkms_meta = frontmatter.get(FRONTMATTER_KEY) or {}
-        for source in home_pkms_meta.get("source_notes") or []:
+        lantern_pkms_meta = frontmatter.get(FRONTMATTER_KEY) or {}
+        for source in lantern_pkms_meta.get("source_notes") or []:
             if str(source.get("supernote_id")) == str(note_id):
                 return path
     return None

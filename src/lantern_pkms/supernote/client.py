@@ -82,7 +82,7 @@ class SupernoteClient:
     def __init__(
         self,
         base_url: str,
-        equipment_no: str = "home-pkms-ingestion",
+        equipment_no: str = "lantern-pkms-ingestion",
         http_client: httpx.Client | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")

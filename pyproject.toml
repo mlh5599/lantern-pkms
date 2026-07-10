@@ -1,5 +1,5 @@
 [project]
-name = "home-pkms"
+name = "lantern-pkms"
 version = "0.1.0"
 description = "Supernote bullet-journal ingestion, local HTR, and Lantern (Obsidian) vault sync"
 requires-python = ">=3.12"
@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-home-pkms = "home_pkms.main:run"
+lantern-pkms = "lantern_pkms.main:run"
 htr-bench = "scripts.htr_bench:main"
 
 [build-system]
@@ -30,7 +30,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/home_pkms"]
+packages = ["src/lantern_pkms"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

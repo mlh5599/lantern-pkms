@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from home_pkms.state.db import (
+from lantern_pkms.state.db import (
     STATUS_USER_MODIFIED,
     NoteRecord,
     PageRecord,
@@ -19,7 +19,7 @@ def db(tmp_path: Path) -> StateDB:
 
 
 def test_make_block_id() -> None:
-    assert make_block_id("1234", 3, 0) == "hp-1234-3-0"
+    assert make_block_id("1234", 3, 0) == "lp-1234-3-0"
 
 
 def test_note_roundtrip(db: StateDB) -> None:
@@ -115,7 +115,7 @@ def _seed_note_and_page(db: StateDB, note_id: str = "1234", page_id: str = "1234
 def test_vault_entry_roundtrip(db: StateDB) -> None:
     _seed_note_and_page(db)
     entry = VaultEntryRecord(
-        entry_id="hp-1234-3-0",
+        entry_id="lp-1234-3-0",
         page_id="1234-3",
         entry_index=0,
         entry_type="task",
@@ -123,11 +123,11 @@ def test_vault_entry_roundtrip(db: StateDB) -> None:
         text="Buy groceries",
         symbol_raw="bullet",
         obsidian_note_path="Daily/2026/2026-07-09.md",
-        obsidian_block_id="hp-1234-3-0",
+        obsidian_block_id="lp-1234-3-0",
         updated_at="2026-07-09T06:00:00",
     )
     db.upsert_vault_entry(entry)
-    fetched = db.get_vault_entry("hp-1234-3-0")
+    fetched = db.get_vault_entry("lp-1234-3-0")
     assert fetched is not None
     assert fetched.text == "Buy groceries"
     assert fetched.status == "system_owned"
@@ -136,7 +136,7 @@ def test_vault_entry_roundtrip(db: StateDB) -> None:
 def test_vault_entry_status_transition_persists(db: StateDB) -> None:
     _seed_note_and_page(db)
     entry = VaultEntryRecord(
-        entry_id="hp-1234-3-0",
+        entry_id="lp-1234-3-0",
         page_id="1234-3",
         entry_index=0,
         entry_type="task",
@@ -144,9 +144,9 @@ def test_vault_entry_status_transition_persists(db: StateDB) -> None:
         text="Buy groceries",
         symbol_raw="bullet",
         obsidian_note_path="Daily/2026/2026-07-09.md",
-        obsidian_block_id="hp-1234-3-0",
+        obsidian_block_id="lp-1234-3-0",
         updated_at="2026-07-09T06:00:00",
-        last_written_text="- [ ] Buy groceries ^hp-1234-3-0",
+        last_written_text="- [ ] Buy groceries ^lp-1234-3-0",
     )
     db.upsert_vault_entry(entry)
 
@@ -155,7 +155,7 @@ def test_vault_entry_status_transition_persists(db: StateDB) -> None:
     entry.updated_at = "2026-07-10T06:00:00"
     db.upsert_vault_entry(entry)
 
-    fetched = db.get_vault_entry("hp-1234-3-0")
+    fetched = db.get_vault_entry("lp-1234-3-0")
     assert fetched is not None
     assert fetched.status == STATUS_USER_MODIFIED
     assert fetched.text == "Buy groceries and milk"
@@ -166,7 +166,7 @@ def test_get_vault_entries_for_page_ordered_by_entry_index(db: StateDB) -> None:
     for i in (2, 0, 1):
         db.upsert_vault_entry(
             VaultEntryRecord(
-                entry_id=f"hp-1234-3-{i}",
+                entry_id=f"lp-1234-3-{i}",
                 page_id="1234-3",
                 entry_index=i,
                 entry_type="task",
@@ -174,7 +174,7 @@ def test_get_vault_entries_for_page_ordered_by_entry_index(db: StateDB) -> None:
                 text=f"entry {i}",
                 symbol_raw="bullet",
                 obsidian_note_path="Daily/2026/2026-07-09.md",
-                obsidian_block_id=f"hp-1234-3-{i}",
+                obsidian_block_id=f"lp-1234-3-{i}",
                 updated_at="t",
             )
         )

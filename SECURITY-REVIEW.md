@@ -1,6 +1,6 @@
 # Security review log
 
-Every new Docker image or public library used by home-pkms gets an entry here before
+Every new Docker image or public library used by lantern-pkms gets an entry here before
 it's used in the deployed pipeline — a standing practice, not a one-time checklist.
 See the plan's "Security review" section for the full policy.
 
@@ -30,7 +30,7 @@ See the plan's "Security review" section for the full policy.
   pipeline's own calls, no `privileged: true`), assessed as acceptable to proceed.
   Re-scan on every version bump (see "Re-review triggers").
 
-### Python base image (`home-pkms`'s own `Dockerfile`)
+### Python base image (`lantern-pkms`'s own `Dockerfile`)
 
 - **Image**: `python:3.12-slim`, digest
   `sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf`
@@ -39,11 +39,11 @@ See the plan's "Security review" section for the full policy.
   the `python-pkg` layer (pip 25.0.1) itself — clean, 0 findings. All 20 OS-layer
   findings are in base Debian utilities that ship with every Debian image
   (`bsdutils`, `gzip`, `libblkid1`, `mount`, `util-linux`, etc.), not anything
-  home-pkms's own code touches. Both CRITICALs are in `perl-base`
+  lantern-pkms's own code touches. Both CRITICALs are in `perl-base`
   (CVE-2026-42496: Archive::Tar path traversal via crafted symlinks, fix deferred
   upstream; CVE-2026-8376: Perl regex-compilation heap overflow on 32-bit builds
   — architecturally inapplicable, this deploys on amd64).
-- **Risk assessment**: home-pkms never invokes Perl or any Archive::Tar
+- **Risk assessment**: lantern-pkms never invokes Perl or any Archive::Tar
   functionality — these are unreached attack surface bundled with the base image,
   not exploitable through this application's actual code. Acceptable to proceed.
   A smaller/hardened base image could reduce this further as an optional future
@@ -66,8 +66,8 @@ See the plan's "Security review" section for the full policy.
 - **Why not the `[client]` extra**: researched and deliberately rejected — see the
   plan's "Supernote access" section. Their async client talks to their own competing
   self-hosted server reimplementation, not verified against Ratta's official
-  `supernote-service`. home-pkms hand-rolls its own client instead
-  (`src/home_pkms/supernote/client.py`), which is also why the credential-handling
+  `supernote-service`. lantern-pkms hand-rolls its own client instead
+  (`src/lantern_pkms/supernote/client.py`), which is also why the credential-handling
   code is fully ours to read rather than a third-party dependency.
 - **License**: Apache-2.0. Compatible with a public repo.
 - **Maintenance signal** (checked directly via `gh api`, not just a changelog skim):
@@ -113,7 +113,7 @@ h11==0.16.0                potracer==0.0.4            supernote==0.1.1
 
 ## Credential-handling code review (extra scrutiny per policy)
 
-`src/home_pkms/supernote/client.py` is the one piece of code in this repo that holds
+`src/lantern_pkms/supernote/client.py` is the one piece of code in this repo that holds
 real Supernote account credentials and makes outbound network calls with them. Since
 it's hand-rolled (see above), it's fully auditable here rather than living in a
 third-party dependency:
@@ -127,7 +127,7 @@ third-party dependency:
   deserialization.
 
 Credentials themselves (`supernote_username`, `supernote_password`) live in OpenBao
-`secret/home-pkms`, injected as env vars at deploy time — never committed, per the
+`secret/lantern-pkms`, injected as env vars at deploy time — never committed, per the
 plan's Ansible role design.
 
 ---

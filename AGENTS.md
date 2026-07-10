@@ -1,4 +1,4 @@
-# AGENTS.md — AI Agent Context for home-pkms
+# AGENTS.md — AI Agent Context for lantern-pkms
 
 This file gives any AI agent (Claude, Copilot, Cursor, etc.) the context needed to
 work effectively in this repository. Read this before making any changes.
@@ -33,10 +33,10 @@ This started as a personal homelab project but is meant to become something othe
 can self-host. Concretely:
 
 - All connection info (Ollama host, Supernote Cloud URL, credentials, vault path)
-  is env-var driven (`src/home_pkms/config.py`) — never hardcode a real value here.
+  is env-var driven (`src/lantern_pkms/config.py`) — never hardcode a real value here.
 - The bullet-journal folder taxonomy (which Supernote folder names map to which
   vault folders, what date format each uses) is config-driven
-  (`config/taxonomy.default.yml`, loaded via `src/home_pkms/taxonomy.py`) —
+  (`config/taxonomy.default.yml`, loaded via `src/lantern_pkms/taxonomy.py`) —
   **not** a hardcoded dict. `tests/test_taxonomy.py`'s
   `test_custom_taxonomy_config_is_fully_driven_by_config` is the regression test
   proving a totally different folder convention works with zero code changes; don't
@@ -82,7 +82,7 @@ in scope.
 - **Supernote login is live-verified**, including with MFA enabled. See the
   critical gotcha below — this took a *lot* of effort to get right.
 - **Folder listing against a real account works.** The folder taxonomy is now
-  fully config-driven (`config/taxonomy.default.yml` + `src/home_pkms/taxonomy.py`)
+  fully config-driven (`config/taxonomy.default.yml` + `src/lantern_pkms/taxonomy.py`)
   rather than hardcoded — but the owner's real folder structure was being
   reorganized as of this session to fit the required `<category>/<year>/<file>.note`
   shape cleanly. Re-run `scripts/htr_bench.py list` to get a fresh real listing and
@@ -93,8 +93,14 @@ in scope.
   Ansible roles (image pulled, container running, confirmed with a real non-check
   run). The only step that hasn't happened yet is cloning *this* repo onto that host
   — it's pinned to a git tag that doesn't exist until this repo has a first release.
-- **This repo has not been committed yet** (awaiting explicit approval, about to
-  happen now that this cleanup pass and end-to-end infra verification are done).
+- **Renamed from `home-pkms` to `lantern-pkms`** (GitHub repo, Python package
+  `lantern_pkms`, env var prefix `LANTERN_PKMS_*`, Obsidian frontmatter namespace
+  key `lantern_pkms:`, block ID prefix `lp-`, OpenBao secret path
+  `secret/lantern-pkms`, companion `homelab-ansible` role renamed to match). If you
+  see a stray `home_pkms`/`home-pkms`/`HOME_PKMS`/`hp-` reference anywhere (docs,
+  old branches, external notes), it's stale — this was a full rename, not a fork or
+  an alias.
+- **Committed and pushed.** Repo is public.
 
 ---
 
@@ -134,7 +140,7 @@ Related confirmed facts:
 
 ## Supernote folder taxonomy — now fully configurable
 
-See `config/taxonomy.default.yml` and `src/home_pkms/taxonomy.py`. Notes live under
+See `config/taxonomy.default.yml` and `src/lantern_pkms/taxonomy.py`. Notes live under
 a configurable `source_root` within Supernote's own fixed system folders (typically
 under `NOTE/Note/...` — `NOTE/`, `DOCUMENT/`, etc. are Supernote's own top-level
 categories, not user-configurable). Every category note must live at
@@ -157,7 +163,7 @@ adding defensive/fallback parsing logic here.
   The VLM only reports raw observations (shape, crossed-out, struck-through,
   confidence); a separate deterministic pass decides meaning.
 - **The folder taxonomy is config-driven, never hardcoded** — `config/taxonomy.default.yml`
-  + `src/home_pkms/taxonomy.py`. See "Design principle" above.
+  + `src/lantern_pkms/taxonomy.py`. See "Design principle" above.
 - **CPU-only Ollama calls, by default** — `options.num_gpu=0` on every HTR request,
   so a GPU on the Ollama host stays free for other ad hoc model use. Not a bug if
   HTR is slow; that's expected. `OllamaHTRClient(force_cpu=False)` overrides this.
@@ -172,7 +178,7 @@ adding defensive/fallback parsing logic here.
 ```bash
 .venv/bin/pytest                                    # full test suite (79 tests)
 .venv/bin/pytest tests/test_vault_writer_idempotency.py -v   # the critical-path suite
-docker build -t home-pkms:test .                     # verify the image builds
+docker build -t lantern-pkms:test .                     # verify the image builds
 .venv/bin/pip-audit                                   # dependency vuln scan
 trivy image <image>                                    # image vuln scan
 ```
@@ -182,7 +188,7 @@ Pattern for fetching secrets from a vault/secrets-manager without ever printing 
 
 ```bash
 TOKEN=$(curl -s --request POST --data "{\"role_id\":\"$ROLE_ID\",\"secret_id\":\"$SECRET_ID\"}" "$SECRETS_ADDR/v1/auth/approle/login" | python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])")
-SECRET_JSON=$(curl -s --header "X-Vault-Token: $TOKEN" "$SECRETS_ADDR/v1/secret/data/home-pkms")
+SECRET_JSON=$(curl -s --header "X-Vault-Token: $TOKEN" "$SECRETS_ADDR/v1/secret/data/lantern-pkms")
 export SUPERNOTE_USERNAME=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['data']['supernote_username'])")
 export SUPERNOTE_PASSWORD=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['data']['supernote_password'])")
 ```

@@ -8,7 +8,7 @@ both read from one file.
 
 from __future__ import annotations
 
-from home_pkms.structuring.symbol_mapping import SymbolMappingConfig
+from lantern_pkms.structuring.symbol_mapping import SymbolMappingConfig
 
 _BASE_INSTRUCTIONS = """\
 You are transcribing one page of a handwritten bullet journal. For each distinct \
