@@ -35,8 +35,14 @@ FRONTMATTER_KEY = "lantern_pkms"
 BEGIN_MARK = "<!-- lantern-pkms:begin -->"
 END_MARK = "<!-- lantern-pkms:end -->"
 
-SECTION_ORDER = ["Tasks", "Events", "Notes", "Mood", "Needs Review"]
-_SECTION_HEADERS = {s: ("## ⚠️ Needs Review" if s == "Needs Review" else f"## {s}") for s in SECTION_ORDER}
+# "Entries" is the single nested outline every ordinary line renders into, in
+# original page order/indentation — no header is printed for it, since it's the
+# note's default/only content (see issue #2: bucketing entries into separate
+# Tasks/Events/Notes/Mood sections loses which line belongs under which). "Needs
+# Review" stays a separate, headed section — it's a data-quality flag, not a
+# content category.
+SECTION_ORDER = ["Entries", "Needs Review"]
+_SECTION_HEADERS = {"Needs Review": "## ⚠️ Needs Review"}
 _HEADER_TO_SECTION = {v: k for k, v in _SECTION_HEADERS.items()}
 
 _BLOCK_REF_RE = re.compile(r"\^([A-Za-z0-9_-]+)\s*$")
@@ -148,7 +154,9 @@ def _render_managed_region(lines_by_block: dict[str, ManagedLine]) -> str:
         texts = by_section.get(section) or []
         if not texts:
             continue
-        parts.append(_SECTION_HEADERS[section])
+        header = _SECTION_HEADERS.get(section)
+        if header:
+            parts.append(header)
         parts.extend(texts)
         parts.append("")
     if parts[-1] == "":

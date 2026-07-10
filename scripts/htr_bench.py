@@ -159,6 +159,9 @@ def cmd_transcribe(args: argparse.Namespace) -> None:
 
     print(f"\n{len(vlm_lines)} lines transcribed:\n")
     for line in vlm_lines:
+        if line.kind != "entry":
+            print(f"  [{line.kind}] conf={line.confidence:.2f}  text: {line.text!r}")
+            continue
         classified = classify(line, symbol_config)
         flags = []
         if line.symbol_crossed_out:
@@ -168,7 +171,7 @@ def cmd_transcribe(args: argparse.Namespace) -> None:
         flag_str = f" [{', '.join(flags)}]" if flags else ""
         review = " ⚠️ NEEDS REVIEW" if classified.needs_review else ""
         print(
-            f"  [{line.raw_symbol:13s}]{flag_str:22s} conf={line.confidence:.2f}  "
+            f"  [{line.raw_symbol:13s}]{flag_str:22s} indent={line.indent_level} conf={line.confidence:.2f}  "
             f"-> {classified.entry_type}/{classified.state}{review}"
         )
         print(f"      text: {line.text!r}")

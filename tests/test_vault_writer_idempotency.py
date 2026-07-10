@@ -42,7 +42,7 @@ def vault(tmp_path: Path) -> Path:
 
 def _task_line(text: str = "Buy groceries", block_id: str = "lp-1234-3-0") -> RenderedLine:
     return RenderedLine(
-        block_id=block_id, section="Tasks", text=f"- [ ] {text}", entry_type="task", entry_index=0
+        block_id=block_id, section="Entries", text=f"- [ ] {text}", entry_type="task", entry_index=0
     )
 
 
@@ -63,7 +63,7 @@ def test_new_file_created_with_task(vault: Path, state: StateDB) -> None:
     assert outcome.created == ["lp-1234-3-0"]
     text = (vault / "Daily/2026/2026-07-09.md").read_text()
     assert "- [ ] Buy groceries ^lp-1234-3-0" in text
-    assert "## Tasks" in text
+    assert "## Entries" not in text  # no header for the default/only content section
     assert "lantern_pkms" in text
 
 
@@ -296,10 +296,17 @@ def test_parse_note_roundtrip_preserves_sections() -> None:
     text = (
         "---\nlantern_pkms: {}\n---\n\n"
         "<!-- lantern-pkms:begin -->\n"
-        "## Tasks\n- [ ] A ^lp-1-1-0\n\n"
-        "## Events\n- 10:00 B ^lp-1-1-1\n"
+        "- [ ] A ^lp-1-1-0\n"
+        "### 10:00 AM – 11:00 AM ^lp-1-1-1\n"
+        "    - 10:00 B ^lp-1-1-2\n\n"
+        "## ⚠️ Needs Review\n- ??? ^lp-1-1-3\n"
         "<!-- lantern-pkms:end -->\n"
     )
     parsed = parse_note(text)
-    assert parsed.lines_by_block["lp-1-1-0"].section == "Tasks"
-    assert parsed.lines_by_block["lp-1-1-1"].section == "Events"
+    # Lines with no preceding recognized header default to "Entries" — the single
+    # nested outline, no category headers (see issue #2) — including timebox
+    # headings, which are tracked/locked like any other line, not special-cased.
+    assert parsed.lines_by_block["lp-1-1-0"].section == "Entries"
+    assert parsed.lines_by_block["lp-1-1-1"].section == "Entries"
+    assert parsed.lines_by_block["lp-1-1-2"].section == "Entries"
+    assert parsed.lines_by_block["lp-1-1-3"].section == "Needs Review"

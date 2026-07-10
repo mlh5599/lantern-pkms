@@ -10,6 +10,12 @@ from __future__ import annotations
 
 RAW_SYMBOLS = ["bullet", "circle", "dash", "equals", "chevron_left", "chevron_right", "other"]
 
+# "entry" is a normal bujo line (the symbol/text/indent fields apply). "time_start" /
+# "time_end" mark a timebox boundary (a ruled start/end-time box some page layouts
+# use down the left margin) — for those, `text` holds the transcribed time value and
+# the symbol/indent fields are irrelevant filler the model should leave at defaults.
+LINE_KINDS = ["entry", "time_start", "time_end"]
+
 PAGE_LINES_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -18,13 +24,15 @@ PAGE_LINES_SCHEMA: dict = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "kind": {"type": "string", "enum": LINE_KINDS},
+                    "indent_level": {"type": "integer", "minimum": 0},
                     "raw_symbol": {"type": "string", "enum": RAW_SYMBOLS},
                     "symbol_crossed_out": {"type": "boolean"},
                     "text_struck_through": {"type": "boolean"},
                     "text": {"type": "string"},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                 },
-                "required": ["raw_symbol", "text", "confidence"],
+                "required": ["kind", "indent_level", "raw_symbol", "text", "confidence"],
             },
         }
     },

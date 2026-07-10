@@ -17,6 +17,8 @@ import logging
 import time
 from datetime import date, datetime
 
+from pydantic import BaseModel
+
 from lantern_pkms.config import Settings
 from lantern_pkms.htr.ollama_client import OllamaHTRClient
 from lantern_pkms.htr.prompts import build_transcription_prompt
@@ -30,7 +32,12 @@ from lantern_pkms.metrics import (
 )
 from lantern_pkms.state.db import NoteRecord, PageRecord, StateDB, make_block_id
 from lantern_pkms.structuring.migration import MIGRATED_NEXT_DAY, compute_migration, is_migration_state
-from lantern_pkms.structuring.symbol_mapping import ClassifiedEntry, SymbolMappingConfig, classify
+from lantern_pkms.structuring.symbol_mapping import (
+    ClassifiedEntry,
+    SymbolMappingConfig,
+    VLMLine,
+    classify,
+)
 from lantern_pkms.supernote.client import SupernoteClient, SupernoteEntry
 from lantern_pkms.supernote.note_parser import ParsedNotebook, parse_note_bytes
 from lantern_pkms.taxonomy import TaxonomyConfig, source_page_path
@@ -38,13 +45,29 @@ from lantern_pkms.vault.writer import RenderedLine, sync_page
 
 logger = logging.getLogger("lantern_pkms")
 
-_SECTION_FOR_ENTRY_TYPE = {
-    "task": "Tasks",
-    "event": "Events",
-    "note": "Notes",
-    "mood": "Mood",
-    "review": "Needs Review",
-}
+# Markdown nesting unit for indent_level -> list indentation (see render_entry_text).
+INDENT_UNIT = "    "
+
+
+class EntryItem(BaseModel):
+    """A page item that renders as a normal bujo outline line."""
+
+    entry: ClassifiedEntry
+
+
+class HeadingItem(BaseModel):
+    """A page item that renders as a timebox heading grouping the entries after it.
+
+    See group_page_items(): produced from a time_start/time_end marker pair (or a
+    lone time_start with no matching end before the page runs out).
+    """
+
+    start_text: str
+    end_text: str | None = None
+    confidence: float
+
+
+PageItem = EntryItem | HeadingItem
 
 
 # --------------------------------------------------------------------------------
@@ -74,17 +97,71 @@ def render_entry_text(c: ClassifiedEntry) -> str:
     if c.needs_review:
         reason = c.review_reason or "flagged"
         return f"- {c.text} (confidence {c.confidence:.2f} — {reason})"
+    prefix = INDENT_UNIT * c.indent_level
     if c.entry_type == "task":
         if c.state == "complete":
-            return f"- [x] {c.text}"
+            return f"{prefix}- [x] {c.text}"
         if c.state == "cancelled":
-            return f"- [-] ~~{c.text}~~ (cancelled)"
-        return f"- [ ] {c.text}"
+            return f"{prefix}- [-] ~~{c.text}~~ (cancelled)"
+        return f"{prefix}- [ ] {c.text}"
     if c.entry_type == "mood":
-        return f"- = {c.text}"
+        return f"{prefix}- = {c.text}"
     if c.state == "cancelled":
-        return f"- ~~{c.text}~~ (cancelled)"
-    return f"- {c.text}"
+        return f"{prefix}- ~~{c.text}~~ (cancelled)"
+    return f"{prefix}- {c.text}"
+
+
+def render_heading_text(item: HeadingItem) -> str:
+    if item.end_text:
+        return f"### {item.start_text} – {item.end_text}"
+    return f"### {item.start_text}"
+
+
+def group_page_items(vlm_lines: list[VLMLine], symbol_config: SymbolMappingConfig) -> list[PageItem]:
+    """Turn one page's ordered VLM lines into a rendering-ready ordered item list.
+
+    Preserves original page order and nesting instead of bucketing entries by
+    category (see issue #2 — grouping a mood/task into a separate Tasks/Events/Mood
+    section from the event it was written under loses what it's actually about).
+
+    Timebox markers (kind="time_start"/"time_end") aren't rendered directly — they
+    open/close a HeadingItem that groups the entries between them. The heading has
+    to render *before* those entries, but the end time isn't known until the
+    closing "time_end" marker is reached (it's physically at the bottom of the
+    ruled box), so entries are buffered until the box closes. An unmatched
+    time_start (a second time_start before a time_end, or the page ending with a
+    box still open) flushes what's buffered under a start-only heading rather than
+    dropping it. A stray time_end with nothing open is a no-op.
+    """
+    items: list[PageItem] = []
+    buffer: list[EntryItem] = []
+    open_start: VLMLine | None = None
+
+    def flush(end_text: str | None) -> None:
+        nonlocal buffer, open_start
+        if open_start is not None:
+            items.append(
+                HeadingItem(start_text=open_start.text, end_text=end_text, confidence=open_start.confidence)
+            )
+        items.extend(buffer)
+        buffer = []
+        open_start = None
+
+    for line in vlm_lines:
+        if line.kind == "time_start":
+            if open_start is not None:
+                flush(None)
+            open_start = line
+        elif line.kind == "time_end":
+            flush(line.text)
+        else:
+            item = EntryItem(entry=classify(line, symbol_config))
+            (buffer if open_start is not None else items).append(item)
+
+    if open_start is not None:
+        flush(None)
+
+    return items
 
 
 def append_rendered_lines(
@@ -101,7 +178,7 @@ def append_rendered_lines(
     an origin cross-reference and a destination live entry (see the vault writer's
     docstring: "a migrated task is one canonical entry that moves").
     """
-    section = _SECTION_FOR_ENTRY_TYPE.get(c.entry_type, "Notes") if not c.needs_review else "Needs Review"
+    section = "Needs Review" if c.needs_review else "Entries"
 
     if is_migration_state(c.state) and entry_date is not None:
         dest = compute_migration(c.state, entry_date)
@@ -113,9 +190,9 @@ def append_rendered_lines(
 
         marker = ">" if c.state == MIGRATED_NEXT_DAY else "<"
         link_target = dest_path.removesuffix(".md")
-        origin_text = f"- [{marker}] ~~{c.text}~~ → migrated to [[{link_target}]]"
+        origin_text = f"{INDENT_UNIT * c.indent_level}- [{marker}] ~~{c.text}~~ → migrated to [[{link_target}]]"
         rendered_by_target.setdefault(default_path, []).append(
-            RenderedLine(block_id=block_id, section="Tasks", text=origin_text, entry_type="task", entry_index=entry_index)
+            RenderedLine(block_id=block_id, section="Entries", text=origin_text, entry_type="task", entry_index=entry_index)
         )
 
         dest_entry = ClassifiedEntry(
@@ -124,7 +201,7 @@ def append_rendered_lines(
         )
         rendered_by_target.setdefault(dest_path, []).append(
             RenderedLine(
-                block_id=f"{block_id}-dest", section="Tasks", text=render_entry_text(dest_entry),
+                block_id=f"{block_id}-dest", section="Entries", text=render_entry_text(dest_entry),
                 entry_type="task", entry_index=entry_index,
             )
         )
@@ -132,6 +209,21 @@ def append_rendered_lines(
 
     rendered_by_target.setdefault(default_path, []).append(
         RenderedLine(block_id=block_id, section=section, text=render_entry_text(c), entry_type=c.entry_type, entry_index=entry_index)
+    )
+
+
+def append_heading_line(
+    rendered_by_target: dict[str, list[RenderedLine]],
+    block_id: str,
+    entry_index: int,
+    item: HeadingItem,
+    default_path: str,
+) -> None:
+    rendered_by_target.setdefault(default_path, []).append(
+        RenderedLine(
+            block_id=block_id, section="Entries", text=render_heading_text(item),
+            entry_type="heading", entry_index=entry_index,
+        )
     )
 
 
@@ -238,7 +330,7 @@ def _ingest_page(
         return  # page unchanged — skip re-running HTR
 
     vlm_lines = htr_client.transcribe_page(png_bytes, prompt)
-    classified = [classify(line, symbol_config) for line in vlm_lines]
+    items = group_page_items(vlm_lines, symbol_config)
 
     image_rel_path = source_page_path(entry.id, page_number)
     image_abs_path = settings.vault_path / image_rel_path
@@ -250,23 +342,28 @@ def _ingest_page(
     # vault_entries.page_id is a foreign key into pages(page_id) — the pages row must
     # exist before sync_page() below inserts any vault_entries referencing it, or the
     # insert fails with a FOREIGN KEY constraint error.
-    avg_confidence = sum(c.confidence for c in classified) / len(classified) if classified else None
+    confidences = [item.entry.confidence if isinstance(item, EntryItem) else item.confidence for item in items]
+    avg_confidence = sum(confidences) / len(confidences) if confidences else None
+    review_needed = any(isinstance(item, EntryItem) and item.entry.needs_review for item in items)
     state.upsert_page(
         PageRecord(
             page_id=page_id,
             note_id=entry.id,
             page_number=page_number,
             page_content_sha256=page_hash,
-            htr_json=json.dumps([c.model_dump() for c in classified]),
+            htr_json=json.dumps([item.model_dump() for item in items]),
             htr_confidence_avg=avg_confidence,
-            review_needed=any(c.needs_review for c in classified),
+            review_needed=review_needed,
         )
     )
 
     rendered_by_target: dict[str, list[RenderedLine]] = {}
-    for i, c in enumerate(classified):
+    for i, item in enumerate(items):
         block_id = make_block_id(entry.id, page_number, i)
-        append_rendered_lines(rendered_by_target, block_id, i, c, year, entry_date, default_path, taxonomy)
+        if isinstance(item, EntryItem):
+            append_rendered_lines(rendered_by_target, block_id, i, item.entry, year, entry_date, default_path, taxonomy)
+        else:
+            append_heading_line(rendered_by_target, block_id, i, item, default_path)
 
     flagged_count = 0
     for target_path, lines in rendered_by_target.items():

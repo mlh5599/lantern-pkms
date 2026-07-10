@@ -9,6 +9,7 @@ rebuild. See the "HTR + structuring pipeline" section of the lantern-pkms v1 pla
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel
@@ -38,8 +39,17 @@ class SymbolMappingConfig(BaseModel):
 
 
 class VLMLine(BaseModel):
-    """One line as reported by the VLM's structured-output pass."""
+    """One line as reported by the VLM's structured-output pass.
 
+    `kind` distinguishes a normal bujo line ("entry") from a timebox boundary
+    marker ("time_start"/"time_end") — see htr/prompts.py. `indent_level` is the
+    line's visual nesting depth, used downstream to preserve which entries belong
+    under which parent instead of flattening everything into category buckets
+    (see issue #2).
+    """
+
+    kind: Literal["entry", "time_start", "time_end"] = "entry"
+    indent_level: int = 0
     raw_symbol: str
     symbol_crossed_out: bool = False
     text_struck_through: bool = False
@@ -56,6 +66,7 @@ class ClassifiedEntry(BaseModel):
     symbol_raw: str
     confidence: float
     needs_review: bool
+    indent_level: int = 0
     review_reason: str | None = None
 
 
@@ -74,6 +85,7 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
             symbol_raw=line.raw_symbol,
             confidence=line.confidence,
             needs_review=True,
+            indent_level=line.indent_level,
             review_reason=f"confidence {line.confidence:.2f} below threshold "
             f"{config.confidence_threshold:.2f}",
         )
@@ -87,6 +99,7 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
             symbol_raw=line.raw_symbol,
             confidence=line.confidence,
             needs_review=True,
+            indent_level=line.indent_level,
             review_reason=f"unrecognized symbol {line.raw_symbol!r}",
         )
 
@@ -109,4 +122,5 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
         symbol_raw=line.raw_symbol,
         confidence=line.confidence,
         needs_review=False,
+        indent_level=line.indent_level,
     )

@@ -91,3 +91,22 @@ def test_confidence_check_takes_priority_over_unknown_symbol(config: SymbolMappi
     entry = classify(line, config)
     assert entry.needs_review
     assert "confidence" in (entry.review_reason or "")
+
+
+def test_line_kind_defaults_to_entry() -> None:
+    line = VLMLine(raw_symbol="bullet", text="test", confidence=0.9)
+    assert line.kind == "entry"
+
+
+def test_indent_level_passes_through_classification(config: SymbolMappingConfig) -> None:
+    line = VLMLine(raw_symbol="bullet", text="Set up deep dive sessions", confidence=0.9, indent_level=2)
+    entry = classify(line, config)
+    assert entry.indent_level == 2
+
+
+def test_indent_level_passes_through_on_review_paths(config: SymbolMappingConfig) -> None:
+    low_confidence = VLMLine(raw_symbol="bullet", text="???", confidence=0.1, indent_level=1)
+    assert classify(low_confidence, config).indent_level == 1
+
+    unrecognized = VLMLine(raw_symbol="triangle", text="???", confidence=0.9, indent_level=3)
+    assert classify(unrecognized, config).indent_level == 3
