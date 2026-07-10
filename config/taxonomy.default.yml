@@ -1,0 +1,55 @@
+# Maps your Supernote folder structure to your Lantern vault structure. Externalized
+# so this pipeline isn't hardcoded to any one person's bullet-journal convention —
+# rename folders, add/remove categories, or change date formats without touching code.
+#
+# Every category note MUST live at <source_root>/<category source_folder>/<year>/<file>.note
+# — a year subfolder is required for every category, no exceptions. This keeps the
+# parsing logic simple and predictable; if a note doesn't fit, it's skipped (and
+# logged) rather than guessed at.
+version: 1
+
+# Path within your Supernote account where your journal folders live. Supernote's
+# own top-level folders (NOTE/, DOCUMENT/, EXPORT/, etc.) are fixed by the app —
+# this is the path to *your* journal folder inside NOTE/Note/. If you keep your
+# bullet-journal folders directly under NOTE/Note/ with no wrapper folder, set this
+# to "NOTE/Note".
+source_root: "NOTE/Note/Journal"
+
+# A note at <source_root>/<index_note> is never ingested — it's your own hand-drawn
+# index/table of contents. Index.md in the vault is auto-generated instead (see
+# README's "Category mapping" section for why).
+index_note: "Index.note"
+
+# date_format controls both how the note's date is parsed from its filename and how
+# it's placed in the vault:
+#   daily   - filename starts with YYYY-MM-DD (e.g. "2026-07-09.note" or
+#             "2026-07-09 - Daily.note") -> vault_folder/<year>/<YYYY-MM-DD>.md
+#   monthly - filename starts with YYYY-MM -> vault_folder/<year>/<YYYY-MM>.md
+#   none    - not calendar-scoped -> vault_folder/<year>/<slugified-title>.md
+categories:
+  daily:
+    source_folder: "Daily"
+    vault_folder: "Daily"
+    date_format: "daily"
+  monthly:
+    source_folder: "Monthly"
+    vault_folder: "Monthly"
+    date_format: "monthly"
+  future:
+    source_folder: "Future"
+    vault_folder: "Future"
+    date_format: "none"
+  collections:
+    source_folder: "Collections"
+    vault_folder: "Collections"
+    date_format: "none"
+  other:
+    source_folder: "Other"
+    vault_folder: "Other"
+    date_format: "none"
+
+# Destination for '<' (migrated-to-backlog) tasks — must name a category above.
+# A backlog item is a Future Log concept in bullet journaling, so this defaults to
+# the "future" category; change it if your convention differs.
+backlog_category: "future"
+backlog_file_name: "Backlog"

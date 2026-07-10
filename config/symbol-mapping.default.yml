@@ -1,0 +1,47 @@
+# Default bullet-journal symbol semantics, externalized so they can be tuned to your
+# own convention without a code change or rebuild. Copy this file, edit your copy,
+# and point HOME_PKMS_SYMBOL_MAPPING_PATH at it.
+#
+# The crossed_out / struck_through split below is a best guess pending empirical
+# confirmation against real sample pages (see htr_bench.py / Phase 0 verification) —
+# tune it once real pages have been reviewed.
+version: 1
+
+# Below this confidence, a transcribed line is routed to "Needs Review" instead of
+# being trusted into its normal category.
+confidence_threshold: 0.6
+
+symbols:
+  bullet:
+    glyph: "•"
+    entry_type: task
+    default_state: open
+  circle:
+    glyph: "○"
+    entry_type: event
+    default_state: scheduled
+  dash:
+    glyph: "–"
+    entry_type: note
+    default_state: null
+  equals:
+    glyph: "="
+    entry_type: mood
+    default_state: null
+  chevron_left:
+    glyph: "<"
+    entry_type: task
+    default_state: migrated_backlog
+  chevron_right:
+    glyph: ">"
+    entry_type: task
+    default_state: migrated_next_day
+
+# Marks modify the base symbol's state. "applies_to" restricts a mark to certain
+# entry_types; omit it to apply to any entry_type.
+marks:
+  symbol_crossed_out:
+    applies_to: task
+    state: complete
+  text_struck_through:
+    state: cancelled
