@@ -20,7 +20,7 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 from lantern_pkms.config import Settings
-from lantern_pkms.htr.ollama_client import OllamaHTRClient
+from lantern_pkms.htr.ollama_client import OllamaError, OllamaHTRClient
 from lantern_pkms.htr.prompts import build_transcription_prompt
 from lantern_pkms.metrics import (
     htr_low_confidence_flagged_total,
@@ -330,15 +330,23 @@ def _ingest_page(
     if existing_page is not None and existing_page.page_content_sha256 == page_hash:
         return  # page unchanged — skip re-running HTR
 
-    vlm_lines = htr_client.transcribe_page(png_bytes, prompt)
-    items = group_page_items(vlm_lines, symbol_config)
-
+    # Both only depend on png_bytes/taxonomy, not on transcription succeeding —
+    # computed up front so a failed HTR call (below) can still write a visible
+    # placeholder to the right vault file and still save the source scan.
     image_rel_path = source_page_path(entry.id, page_number)
     image_abs_path = settings.vault_path / image_rel_path
     image_abs_path.parent.mkdir(parents=True, exist_ok=True)
     image_abs_path.write_bytes(png_bytes)
-
     default_path = taxonomy.default_target_path(category, year, title, entry_date)
+
+    try:
+        vlm_lines = htr_client.transcribe_page(png_bytes, prompt)
+    except OllamaError:
+        logger.exception("HTR failed for page %s after retries — flagging for review", page_id)
+        _record_htr_failure(state, entry, page_number, page_id, page_hash, default_path, category, entry_date, settings)
+        raise  # still counted/logged as a pipeline error by run_once()'s per-note catch
+
+    items = group_page_items(vlm_lines, symbol_config)
 
     # vault_entries.page_id is a foreign key into pages(page_id) — the pages row must
     # exist before sync_target() below inserts any vault_entries referencing it, or
@@ -383,6 +391,52 @@ def _ingest_page(
         )
 
     htr_pages_processed_total.inc()
+
+
+def _record_htr_failure(
+    state: StateDB,
+    entry: SupernoteEntry,
+    page_number: int,
+    page_id: str,
+    page_hash: str,
+    default_path: str,
+    category: str,
+    entry_date: date | None,
+    settings: Settings,
+) -> None:
+    """Make a page that fails HTR even after retries visible in the vault instead
+    of silently vanishing (issue #4). The sentinel page hash is never equal to a
+    real one, so _ingest_page's skip-if-unchanged check always retries this page
+    on the next run. The placeholder line reuses entry_index 0's block id, so
+    once HTR succeeds, replace_page_entries_for_target's normal upsert overwrites
+    it in place with real content rather than leaving an orphaned entry.
+    """
+    state.upsert_page(
+        PageRecord(
+            page_id=page_id,
+            note_id=entry.id,
+            page_number=page_number,
+            page_content_sha256=f"htr-failed:{page_hash}",
+            default_target_path=default_path,
+            review_needed=True,
+        )
+    )
+    failure_line = RenderedLine(
+        block_id=make_block_id(entry.id, page_number, 0),
+        text="- ⚠️ HTR failed to transcribe this page — see ingestion logs",
+        entry_type="review",
+        entry_index=0,
+        needs_review=True,
+    )
+    sync_target(
+        vault_root=settings.vault_path,
+        target_key=default_path,
+        category=category,
+        entry_date=entry_date.isoformat() if entry_date else None,
+        page_id=page_id,
+        lines=[failure_line],
+        state=state,
+    )
 
 
 def run() -> None:

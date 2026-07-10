@@ -48,7 +48,7 @@ def test_transcribe_page_parses_lines_and_forces_cpu() -> None:
 
     sent_body = json.loads(route.calls.last.request.content)
     assert sent_body["model"] == "qwen3-vl:8b"
-    assert sent_body["options"] == {"num_gpu": 0}
+    assert sent_body["options"] == {"num_predict": 4096, "num_ctx": 8192, "num_gpu": 0}
     assert sent_body["think"] is False
 
     # images should be base64 of the raw bytes we passed in
@@ -58,7 +58,7 @@ def test_transcribe_page_parses_lines_and_forces_cpu() -> None:
 
 
 @respx.mock
-def test_force_cpu_false_omits_options() -> None:
+def test_force_cpu_false_omits_num_gpu_but_keeps_predict_and_ctx() -> None:
     respx.post(f"{BASE_URL}/api/generate").mock(
         return_value=httpx.Response(200, json={"response": json.dumps({"lines": []})})
     )
@@ -66,7 +66,7 @@ def test_force_cpu_false_omits_options() -> None:
     client.transcribe_page(b"bytes", prompt="p")
 
     sent_body = json.loads(respx.calls.last.request.content)
-    assert "options" not in sent_body
+    assert sent_body["options"] == {"num_predict": 4096, "num_ctx": 8192}
 
 
 @respx.mock
@@ -103,10 +103,28 @@ def test_falls_back_to_thinking_field_when_response_empty() -> None:
 
 
 @respx.mock
-def test_invalid_json_response_raises() -> None:
-    respx.post(f"{BASE_URL}/api/generate").mock(
+def test_invalid_json_response_raises_after_exhausting_retries() -> None:
+    route = respx.post(f"{BASE_URL}/api/generate").mock(
         return_value=httpx.Response(200, json={"response": "not json{{"})
     )
     client = OllamaHTRClient(BASE_URL, model="qwen3-vl:8b")
     with pytest.raises(OllamaError):
         client.transcribe_page(b"bytes", prompt="p")
+    assert route.call_count == 2  # _MAX_ATTEMPTS
+
+
+@respx.mock
+def test_transcribe_page_retries_once_and_succeeds() -> None:
+    good_response = httpx.Response(
+        200,
+        json={"response": json.dumps({"lines": [{"raw_symbol": "bullet", "text": "Recovered", "confidence": 0.9}]})},
+    )
+    truncated_response = httpx.Response(200, json={"response": '{"lines": [{"text": "cut off'})
+    route = respx.post(f"{BASE_URL}/api/generate").mock(side_effect=[truncated_response, good_response])
+
+    client = OllamaHTRClient(BASE_URL, model="qwen3-vl:8b")
+    lines = client.transcribe_page(b"bytes", prompt="p")
+
+    assert route.call_count == 2
+    assert len(lines) == 1
+    assert lines[0].text == "Recovered"
