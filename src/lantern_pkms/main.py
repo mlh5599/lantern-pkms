@@ -31,7 +31,7 @@ from lantern_pkms.metrics import (
     start_metrics_server,
 )
 from lantern_pkms.state.db import NoteRecord, PageRecord, StateDB, make_block_id
-from lantern_pkms.structuring.migration import MIGRATED_NEXT_DAY, compute_migration, is_migration_state
+from lantern_pkms.structuring.migration import compute_migration, is_migration_state
 from lantern_pkms.structuring.symbol_mapping import (
     ClassifiedEntry,
     SymbolMappingConfig,
@@ -95,20 +95,31 @@ def note_already_fully_processed(
 
 def render_entry_text(c: ClassifiedEntry) -> str:
     prefix = INDENT_UNIT * c.indent_level
-    if c.needs_review:
+    if c.entry_type == "review":
         reason = c.review_reason or "flagged"
         return f"{prefix}- {c.text} (confidence {c.confidence:.2f} — {reason})"
+
+    suffix = ""
+    if c.needs_review:
+        reason = c.review_reason or "flagged"
+        suffix = f" (confidence {c.confidence:.2f} — {reason})"
+
     if c.entry_type == "task":
         if c.state == "complete":
-            return f"{prefix}- [x] {c.text}"
+            return f"{prefix}- [x] {c.text}{suffix}"
         if c.state == "cancelled":
-            return f"{prefix}- [-] ~~{c.text}~~ (cancelled)"
-        return f"{prefix}- [ ] {c.text}"
+            return f"{prefix}- [-] ~~{c.text}~~ (cancelled){suffix}"
+        if c.state in ("migrated_backlog", "migrated_next_day"):
+            # Reachable only if entry_date was None when this was routed in
+            # append_rendered_lines, so no destination could be resolved —
+            # surface that rather than silently rendering a bare checkbox.
+            return f"{prefix}- [ ] {c.text} (migrated — no destination resolved){suffix}"
+        return f"{prefix}- [ ] {c.text}{suffix}"
     if c.entry_type == "mood":
-        return f"{prefix}- = {c.text}"
+        return f"{prefix}- = {c.text}{suffix}"
     if c.state == "cancelled":
-        return f"{prefix}- ~~{c.text}~~ (cancelled)"
-    return f"{prefix}- {c.text}"
+        return f"{prefix}- ~~{c.text}~~ (cancelled){suffix}"
+    return f"{prefix}- {c.text}{suffix}"
 
 
 def render_heading_text(item: HeadingItem) -> str:
@@ -186,22 +197,20 @@ def append_rendered_lines(
         else:
             dest_path = taxonomy.backlog_path(year)
 
-        marker = ">" if c.state == MIGRATED_NEXT_DAY else "<"
         link_target = dest_path.removesuffix(".md")
-        origin_text = f"{INDENT_UNIT * c.indent_level}- [{marker}] ~~{c.text}~~ → migrated to [[{link_target}]]"
+        origin_text = f"{INDENT_UNIT * c.indent_level}- [ ] ~~{c.text}~~ → migrated to [[{link_target}]]"
         rendered_by_target.setdefault(default_path, []).append(
             RenderedLine(block_id=block_id, text=origin_text, entry_type="task", entry_index=entry_index)
         )
 
+        origin_link = default_path.removesuffix(".md")
         dest_entry = ClassifiedEntry(
             entry_type="task", state="open", text=c.text, symbol_raw=c.symbol_raw,
             confidence=c.confidence, needs_review=False,
         )
+        dest_text = f"{render_entry_text(dest_entry)} (migrated from [[{origin_link}]])"
         rendered_by_target.setdefault(dest_path, []).append(
-            RenderedLine(
-                block_id=f"{block_id}-dest", text=render_entry_text(dest_entry),
-                entry_type="task", entry_index=entry_index,
-            )
+            RenderedLine(block_id=f"{block_id}-dest", text=dest_text, entry_type="task", entry_index=entry_index)
         )
         return
 

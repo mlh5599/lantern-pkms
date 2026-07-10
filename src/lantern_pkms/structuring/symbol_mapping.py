@@ -73,23 +73,15 @@ class ClassifiedEntry(BaseModel):
 def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
     """Map one transcribed line to its bullet-journal semantics.
 
-    Low confidence and unrecognized symbols both route to needs_review rather than
-    being guessed into a normal category — see the plan's "never silently merge or
-    guess" rule for low-confidence output.
+    An unrecognized symbol routes to needs_review with no entry_type — there's
+    nothing to classify it as. Low confidence is different: entry_type/state are
+    still derived from the recognized symbol (including crossed-out/struck-through
+    marks) regardless of confidence, and needs_review is layered on top as an
+    annotation rather than discarding what's already known — see issue #7, where
+    gating classification on confidence was silently losing a correctly-identified
+    task's checkbox state (and a crossed-out mark's "complete" state) whenever
+    confidence merely dipped.
     """
-    if line.confidence < config.confidence_threshold:
-        return ClassifiedEntry(
-            entry_type="review",
-            state=None,
-            text=line.text,
-            symbol_raw=line.raw_symbol,
-            confidence=line.confidence,
-            needs_review=True,
-            indent_level=line.indent_level,
-            review_reason=f"confidence {line.confidence:.2f} below threshold "
-            f"{config.confidence_threshold:.2f}",
-        )
-
     symbol = config.symbols.get(line.raw_symbol)
     if symbol is None:
         return ClassifiedEntry(
@@ -115,12 +107,18 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
         if mark and (mark.applies_to is None or mark.applies_to == symbol.entry_type):
             state = mark.state
 
+    low_confidence = line.confidence < config.confidence_threshold
     return ClassifiedEntry(
         entry_type=symbol.entry_type,
         state=state,
         text=line.text,
         symbol_raw=line.raw_symbol,
         confidence=line.confidence,
-        needs_review=False,
+        needs_review=low_confidence,
         indent_level=line.indent_level,
+        review_reason=(
+            f"confidence {line.confidence:.2f} below threshold {config.confidence_threshold:.2f}"
+            if low_confidence
+            else None
+        ),
     )

@@ -69,11 +69,15 @@ def test_struck_through_text_is_cancelled_for_any_entry_type(config: SymbolMappi
     assert entry.state == "cancelled"
 
 
-def test_low_confidence_routes_to_review(config: SymbolMappingConfig) -> None:
+def test_low_confidence_still_derives_entry_type_and_state(config: SymbolMappingConfig) -> None:
+    # See issue #7: a recognized symbol's entry_type/state must survive low
+    # confidence — needs_review is an annotation layered on top, not something
+    # that discards what's already known (e.g. that this is a task).
     line = VLMLine(raw_symbol="bullet", text="illegible scrawl", confidence=0.3)
     entry = classify(line, config)
     assert entry.needs_review
-    assert entry.entry_type == "review"
+    assert entry.entry_type == "task"
+    assert entry.state == "open"
     assert "confidence" in (entry.review_reason or "")
 
 
@@ -81,16 +85,29 @@ def test_unrecognized_symbol_routes_to_review(config: SymbolMappingConfig) -> No
     line = VLMLine(raw_symbol="triangle", text="mystery mark", confidence=0.9)
     entry = classify(line, config)
     assert entry.needs_review
+    assert entry.entry_type == "review"
     assert "unrecognized" in (entry.review_reason or "")
 
 
-def test_confidence_check_takes_priority_over_unknown_symbol(config: SymbolMappingConfig) -> None:
-    # Both conditions are true; confidence should be checked first so the reported
-    # reason is deterministic.
+def test_unrecognized_symbol_takes_priority_over_low_confidence(config: SymbolMappingConfig) -> None:
+    # Both conditions are true. Unrecognized-symbol is checked first now — we
+    # genuinely have no entry_type to work with regardless of confidence, so
+    # that's the more fundamental problem and the deterministic reported reason.
     line = VLMLine(raw_symbol="triangle", text="???", confidence=0.1)
     entry = classify(line, config)
     assert entry.needs_review
-    assert "confidence" in (entry.review_reason or "")
+    assert entry.entry_type == "review"
+    assert "unrecognized" in (entry.review_reason or "")
+
+
+def test_low_confidence_crossed_out_bullet_still_marked_complete(config: SymbolMappingConfig) -> None:
+    # See issue #7: a crossed-out mark's "complete" state must survive even when
+    # the line is also flagged for review due to low confidence.
+    line = VLMLine(raw_symbol="bullet", symbol_crossed_out=True, text="Call dentist", confidence=0.4)
+    entry = classify(line, config)
+    assert entry.needs_review
+    assert entry.entry_type == "task"
+    assert entry.state == "complete"
 
 
 def test_line_kind_defaults_to_entry() -> None:

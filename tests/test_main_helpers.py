@@ -117,6 +117,35 @@ def test_render_entry_text_needs_review_preserves_indent() -> None:
     assert render_entry_text(c).startswith("            - ???")
 
 
+def test_render_entry_text_flagged_task_keeps_checkbox_with_suffix() -> None:
+    # See issue #7: a recognized task stays a checkbox even when flagged for
+    # review, instead of losing its checkbox-ness to a generic flagged bullet.
+    c = ClassifiedEntry(
+        entry_type="task", state="open", text="Buy milk", symbol_raw="bullet", confidence=0.4,
+        needs_review=True, review_reason="confidence 0.40 below threshold 0.60",
+    )
+    assert render_entry_text(c) == "- [ ] Buy milk (confidence 0.40 — confidence 0.40 below threshold 0.60)"
+
+
+def test_render_entry_text_flagged_complete_task_keeps_checkmark() -> None:
+    c = ClassifiedEntry(
+        entry_type="task", state="complete", text="Call dentist", symbol_raw="bullet", confidence=0.4,
+        needs_review=True, review_reason="flagged",
+    )
+    assert render_entry_text(c).startswith("- [x] Call dentist")
+
+
+def test_render_entry_text_migration_state_with_no_destination_resolved() -> None:
+    # Reachable only if entry_date was None when routed in append_rendered_lines
+    # (see that function) — should surface rather than silently becoming a bare
+    # open checkbox with no indication it was ever a migration mark.
+    c = ClassifiedEntry(
+        entry_type="task", state="migrated_next_day", text="Finish report",
+        symbol_raw="chevron_right", confidence=0.9, needs_review=False,
+    )
+    assert render_entry_text(c) == "- [ ] Finish report (migrated — no destination resolved)"
+
+
 def test_render_heading_text_with_end() -> None:
     item = HeadingItem(start_text="9:00 AM", end_text="10:15 AM", confidence=0.9)
     assert render_heading_text(item) == "### 9:00 AM – 10:15 AM"
@@ -212,12 +241,12 @@ def test_append_rendered_lines_migrated_next_day_splits_across_two_files(taxonom
 
     assert set(rendered.keys()) == {"Daily/2026/2026-07-09.md", "Daily/2026/2026-07-10.md"}
     origin_line = rendered["Daily/2026/2026-07-09.md"][0]
-    assert "[>]" in origin_line.text
-    assert "migrated to" in origin_line.text
+    assert "[ ]" in origin_line.text
+    assert "migrated to [[Daily/2026/2026-07-10]]" in origin_line.text
     assert origin_line.block_id == "lp-1-1-0"
 
     dest_line = rendered["Daily/2026/2026-07-10.md"][0]
-    assert dest_line.text == "- [ ] Finish report"
+    assert dest_line.text == "- [ ] Finish report (migrated from [[Daily/2026/2026-07-09]])"
     assert dest_line.block_id == "lp-1-1-0-dest"
 
 
@@ -231,4 +260,8 @@ def test_append_rendered_lines_migrated_backlog_targets_future_backlog_file(taxo
 
     assert "Future/2026/Backlog.md" in rendered
     origin_line = rendered["Daily/2026/2026-07-09.md"][0]
-    assert "[<]" in origin_line.text
+    assert "[ ]" in origin_line.text
+    assert "migrated to [[Future/2026/Backlog]]" in origin_line.text
+
+    dest_line = rendered["Future/2026/Backlog.md"][0]
+    assert dest_line.text == "- [ ] Plan trip (migrated from [[Daily/2026/2026-07-09]])"
