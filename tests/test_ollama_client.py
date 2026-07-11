@@ -114,6 +114,28 @@ def test_invalid_json_response_raises_after_exhausting_retries() -> None:
 
 
 @respx.mock
+def test_read_timeout_raises_ollama_error_after_exhausting_retries() -> None:
+    # See issue #10: a plain httpx exception (timeout, connection failure, non-2xx
+    # status) used to bypass the retry loop and the visible-failure fallback entirely,
+    # since only OllamaError triggered either. Any httpx.HTTPError should now surface
+    # as an OllamaError like any other transcription failure.
+    route = respx.post(f"{BASE_URL}/api/generate").mock(side_effect=httpx.ReadTimeout("timed out"))
+    client = OllamaHTRClient(BASE_URL, model="qwen3-vl:8b")
+    with pytest.raises(OllamaError):
+        client.transcribe_page(b"bytes", prompt="p")
+    assert route.call_count == 2  # _MAX_ATTEMPTS
+
+
+@respx.mock
+def test_non_2xx_response_raises_ollama_error_after_exhausting_retries() -> None:
+    route = respx.post(f"{BASE_URL}/api/generate").mock(return_value=httpx.Response(500, text="internal error"))
+    client = OllamaHTRClient(BASE_URL, model="qwen3-vl:8b")
+    with pytest.raises(OllamaError):
+        client.transcribe_page(b"bytes", prompt="p")
+    assert route.call_count == 2  # _MAX_ATTEMPTS
+
+
+@respx.mock
 def test_transcribe_page_retries_once_and_succeeds() -> None:
     good_response = httpx.Response(
         200,

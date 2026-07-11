@@ -91,8 +91,11 @@ class OllamaHTRClient:
             "options": options,
         }
 
-        resp = self._http.post("/api/generate", json=payload)
-        resp.raise_for_status()
+        try:
+            resp = self._http.post("/api/generate", json=payload)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise OllamaError(f"Ollama request failed: {exc}") from exc
         data = resp.json()
 
         # Fall back to 'thinking' if 'response' is still empty — belt-and-suspenders
