@@ -95,10 +95,12 @@ def render_target_file(
     now_iso: str,
     continued_from: str | None = None,
 ) -> str:
-    """`contributing_pages` (all pages with any entry landing here, for provenance)
-    and `origin_pages` (only pages whose *default* target this is, for source-image
-    embeds — a migration destination doesn't get the source page's image) are
-    intentionally separate; see state/db.py's get_contributing_pages/get_origin_pages."""
+    """`contributing_pages` (all (note_id, page_number) pairs with any entry landing
+    here, for source_notes provenance) and `origin_pages` (only pages whose
+    *default* target this is, as (source_folder_name, page_number) pairs, for
+    source-image embeds — a migration destination doesn't get the source page's
+    image) are intentionally separate and use different identifiers for their note;
+    see state/db.py's get_contributing_pages/get_origin_pages."""
     meta: dict = {"target_key": target_key, "last_synced": now_iso}
     if continued_from:
         meta["continued_from"] = continued_from
@@ -124,7 +126,7 @@ def render_target_file(
     if origin_pages:
         from lantern_pkms.taxonomy import source_page_path
 
-        embeds = "\n".join(f"![[{source_page_path(nid, pn)}]]" for nid, pn in origin_pages)
+        embeds = "\n".join(f"![[{source_page_path(folder_name, pn)}]]" for folder_name, pn in origin_pages)
         body_parts.append(f"## Source Pages\n{embeds}")
 
     body = "\n\n".join(body_parts)

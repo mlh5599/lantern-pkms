@@ -37,6 +37,47 @@ def test_note_roundtrip(db: StateDB) -> None:
     assert fetched is not None
     assert fetched.file_name == "2026-07-09.note"
     assert fetched.status == "active"
+    # See issue #8: resolved from file_name, .note stripped, on first ingestion.
+    assert fetched.source_folder_name == "2026-07-09"
+
+
+def test_note_upsert_resolves_source_folder_name_collision(db: StateDB) -> None:
+    db.upsert_note(
+        NoteRecord(
+            note_id="1234", category="daily", folder_year=2026, file_name="Daily.note",
+            content_sha256="v1", first_ingested_at="t", last_ingested_at="t",
+        )
+    )
+    # A second, different note_id with the exact same file_name (e.g. a Supernote
+    # edit-conflict duplicate) must not collide on the same sources folder.
+    db.upsert_note(
+        NoteRecord(
+            note_id="5678", category="daily", folder_year=2026, file_name="Daily.note",
+            content_sha256="v1", first_ingested_at="t", last_ingested_at="t",
+        )
+    )
+    assert db.get_note("1234").source_folder_name == "Daily"
+    assert db.get_note("5678").source_folder_name == "Daily (1)"
+
+
+def test_note_upsert_keeps_source_folder_name_stable_across_renames(db: StateDB) -> None:
+    db.upsert_note(
+        NoteRecord(
+            note_id="1234", category="daily", folder_year=2026, file_name="Original.note",
+            content_sha256="v1", first_ingested_at="t", last_ingested_at="t",
+        )
+    )
+    # Renamed on Supernote later — the already-assigned sources folder must not
+    # move, or already-downloaded page images would be orphaned under the old name.
+    db.upsert_note(
+        NoteRecord(
+            note_id="1234", category="daily", folder_year=2026, file_name="Renamed.note",
+            content_sha256="v2", first_ingested_at="t", last_ingested_at="t2",
+        )
+    )
+    fetched = db.get_note("1234")
+    assert fetched.file_name == "Renamed.note"
+    assert fetched.source_folder_name == "Original"
 
 
 def test_note_upsert_preserves_first_ingested_at(db: StateDB) -> None:
@@ -278,8 +319,11 @@ def test_get_contributing_pages_and_origin_pages(db: StateDB) -> None:
                            entry_type="task", category="daily", text="a", symbol_raw="bullet", updated_at="t")],
     )
 
+    # get_contributing_pages returns the real note_id (frontmatter provenance);
+    # get_origin_pages returns the resolved source_folder_name instead (issue #8 —
+    # it feeds the image embed path, not the note_id) — "a.note" resolves to "a".
     assert db.get_contributing_pages(daily_key) == [("1234", 3)]
-    assert db.get_origin_pages(daily_key) == [("1234", 3)]
+    assert db.get_origin_pages(daily_key) == [("a", 3)]
     # Backlog got an entry from page 3, but page 3's *origin* is the daily note —
     # the backlog shouldn't claim the source image embed for it.
     assert db.get_contributing_pages(backlog_key) == [("1234", 3)]

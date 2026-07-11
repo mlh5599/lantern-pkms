@@ -10,6 +10,7 @@ touch-detection and fork logic that reads these records.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS notes (
     supernote_gmt_modified TEXT,
     first_ingested_at TEXT NOT NULL,
     last_ingested_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    source_folder_name TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pages (
@@ -76,6 +78,17 @@ def make_block_id(note_id: str, page_number: int, entry_index: int) -> str:
     return f"lp-{note_id}-{page_number}-{entry_index}"
 
 
+_UNSAFE_FOLDER_CHARS_RE = re.compile(r"[\\/]")
+
+
+def _sanitize_folder_name(name: str) -> str:
+    """Light filesystem-safety sanitization only (strip path separators) — this is
+    a human-browsable folder name, not a URL slug, so spaces/punctuation/case from
+    the real note filename are kept as-is. See issue #8."""
+    sanitized = _UNSAFE_FOLDER_CHARS_RE.sub("-", name).strip()
+    return sanitized or "untitled"
+
+
 @dataclass
 class NoteRecord:
     note_id: str
@@ -87,6 +100,10 @@ class NoteRecord:
     last_ingested_at: str
     supernote_gmt_modified: str | None = None
     status: str = "active"
+    # DB-managed, not caller-supplied — resolved once on first ingestion (see
+    # StateDB.upsert_note/_resolve_source_folder_name) and never changed again, so
+    # a later Supernote rename doesn't orphan already-downloaded page images.
+    source_folder_name: str | None = None
 
 
 @dataclass
@@ -157,12 +174,18 @@ class StateDB:
     def upsert_note(self, note: NoteRecord) -> None:
         existing = self.get_note(note.note_id)
         first_ingested_at = existing.first_ingested_at if existing else note.first_ingested_at
+        source_folder_name = (
+            existing.source_folder_name
+            if existing and existing.source_folder_name
+            else self._resolve_source_folder_name(note.note_id, note.file_name)
+        )
         self._conn.execute(
             """
             INSERT INTO notes (
                 note_id, category, folder_year, file_name, content_sha256,
-                supernote_gmt_modified, first_ingested_at, last_ingested_at, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                supernote_gmt_modified, first_ingested_at, last_ingested_at, status,
+                source_folder_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(note_id) DO UPDATE SET
                 category = excluded.category,
                 folder_year = excluded.folder_year,
@@ -170,7 +193,8 @@ class StateDB:
                 content_sha256 = excluded.content_sha256,
                 supernote_gmt_modified = excluded.supernote_gmt_modified,
                 last_ingested_at = excluded.last_ingested_at,
-                status = excluded.status
+                status = excluded.status,
+                source_folder_name = excluded.source_folder_name
             """,
             (
                 note.note_id,
@@ -182,6 +206,7 @@ class StateDB:
                 first_ingested_at,
                 note.last_ingested_at,
                 note.status,
+                source_folder_name,
             ),
         )
         self._conn.commit()
@@ -189,6 +214,21 @@ class StateDB:
     def get_note(self, note_id: str) -> NoteRecord | None:
         row = self._conn.execute("SELECT * FROM notes WHERE note_id = ?", (note_id,)).fetchone()
         return _row_to_note(row) if row else None
+
+    def _resolve_source_folder_name(self, note_id: str, file_name: str) -> str:
+        """Resolve a human-readable, collision-free sources folder name for a note
+        the first time it's seen — see issue #8. Appends " (1)", " (2)", ... if a
+        *different* note_id already claimed the same name."""
+        base = _sanitize_folder_name(file_name.removesuffix(".note"))
+        candidate = base
+        suffix = 0
+        while self._conn.execute(
+            "SELECT 1 FROM notes WHERE source_folder_name = ? AND note_id != ?",
+            (candidate, note_id),
+        ).fetchone():
+            suffix += 1
+            candidate = f"{base} ({suffix})"
+        return candidate
 
     # -- pages -------------------------------------------------------------------
 
@@ -348,18 +388,22 @@ class StateDB:
         return [(r["note_id"], r["page_number"]) for r in rows]
 
     def get_origin_pages(self, target_key: str) -> list[tuple[str, int]]:
-        """Distinct (note_id, page_number) pairs for which this target is the page's
-        *origin* (not a migration destination) — for source-image embeds only."""
+        """Distinct (source_folder_name, page_number) pairs for which this target is
+        the page's *origin* (not a migration destination) — for source-image embeds
+        only. Joined through to notes.source_folder_name (not note_id) since that's
+        what the embed path is actually built from — see issue #8."""
         rows = self._conn.execute(
             """
-            SELECT DISTINCT p.note_id, p.page_number
-            FROM vault_entries v JOIN pages p ON v.page_id = p.page_id
+            SELECT DISTINCT n.source_folder_name, p.page_number
+            FROM vault_entries v
+            JOIN pages p ON v.page_id = p.page_id
+            JOIN notes n ON p.note_id = n.note_id
             WHERE v.target_key = ? AND p.default_target_path = ?
-            ORDER BY p.note_id, p.page_number
+            ORDER BY n.source_folder_name, p.page_number
             """,
             (target_key, target_key),
         ).fetchall()
-        return [(r["note_id"], r["page_number"]) for r in rows]
+        return [(r["source_folder_name"], r["page_number"]) for r in rows]
 
 
 def _row_to_note(row: sqlite3.Row) -> NoteRecord:
@@ -373,6 +417,7 @@ def _row_to_note(row: sqlite3.Row) -> NoteRecord:
         first_ingested_at=row["first_ingested_at"],
         last_ingested_at=row["last_ingested_at"],
         status=row["status"],
+        source_folder_name=row["source_folder_name"],
     )
 
 

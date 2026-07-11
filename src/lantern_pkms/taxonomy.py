@@ -108,9 +108,9 @@ class TaxonomyConfig(BaseModel):
         return f"{cat.vault_folder}/{year}/{self.backlog_file_name}.md"
 
 
-def sources_dir(note_id: str) -> str:
-    return f"Sources/Supernote/{note_id}"
+def sources_dir(source_folder_name: str) -> str:
+    return f"Sources/Supernote/{source_folder_name}"
 
 
-def source_page_path(note_id: str, page_number: int) -> str:
-    return f"{sources_dir(note_id)}/page-{page_number:02d}.png"
+def source_page_path(source_folder_name: str, page_number: int) -> str:
+    return f"{sources_dir(source_folder_name)}/page-{page_number:02d}.png"

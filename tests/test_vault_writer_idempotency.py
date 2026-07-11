@@ -297,6 +297,11 @@ def test_image_embeds_only_from_origin_pages(vault: Path, state: StateDB) -> Non
     backlog_text = (vault / backlog_key).read_text()
     assert "Source Pages" in daily_text
     assert "Source Pages" not in backlog_text
+    # See issue #8: the embed path uses the note's resolved source_folder_name
+    # ("2026-07-09", from file_name "2026-07-09.note" in the `state` fixture
+    # above), not the raw note_id ("1234") — note_id ("1234") still legitimately
+    # appears elsewhere, in the frontmatter's source_notes provenance list.
+    assert "Sources/Supernote/2026-07-09/page-03.png" in daily_text
 
 
 def test_personal_content_anywhere_in_untouched_tip_is_preserved_until_next_sync_forks(

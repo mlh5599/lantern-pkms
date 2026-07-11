@@ -306,12 +306,18 @@ def _ingest_note(
             last_ingested_at=now_iso,
         )
     )
+    # Resolved once per note (collision-checked, stable across renames) — see
+    # StateDB.upsert_note/_resolve_source_folder_name and issue #8.
+    source_folder_name = state.get_note(entry.id).source_folder_name
 
     notebook = parse_note_bytes(data, policy="loose")
     entry_date = taxonomy.parse_entry_date(category, year, title)
 
     for page_number in range(notebook.total_pages):
-        _ingest_page(entry, notebook, page_number, category, year, entry_date, title, settings, state, htr_client, prompt, symbol_config, taxonomy)
+        _ingest_page(
+            entry, notebook, page_number, category, year, entry_date, title,
+            source_folder_name, settings, state, htr_client, prompt, symbol_config, taxonomy,
+        )
 
     notes_ingested_total.inc()
 
@@ -324,6 +330,7 @@ def _ingest_page(
     year: int,
     entry_date: date | None,
     title: str,
+    source_folder_name: str,
     settings: Settings,
     state: StateDB,
     htr_client: OllamaHTRClient,
@@ -342,7 +349,7 @@ def _ingest_page(
     # Both only depend on png_bytes/taxonomy, not on transcription succeeding —
     # computed up front so a failed HTR call (below) can still write a visible
     # placeholder to the right vault file and still save the source scan.
-    image_rel_path = source_page_path(entry.id, page_number)
+    image_rel_path = source_page_path(source_folder_name, page_number)
     image_abs_path = settings.vault_path / image_rel_path
     image_abs_path.parent.mkdir(parents=True, exist_ok=True)
     image_abs_path.write_bytes(png_bytes)

@@ -102,6 +102,7 @@ def test_ingest_page_writes_page_row_before_vault_entry(tmp_path, symbol_config,
             year=2026,
             entry_date=None,
             title="2026-07-09",
+            source_folder_name=state.get_note("1234").source_folder_name,
             settings=settings,
             state=state,
             htr_client=_FakeHTRClient(),
@@ -113,6 +114,11 @@ def test_ingest_page_writes_page_row_before_vault_entry(tmp_path, symbol_config,
         page = state.get_page("1234-0")
         assert page is not None
         assert page.htr_confidence_avg == pytest.approx(0.9)
+
+        # See issue #8: the source image folder should be named after the note's
+        # own filename, not the raw Supernote note_id.
+        image_path = vault_path / "Sources/Supernote/2026-07-09 - Daily/page-00.png"
+        assert image_path.exists()
 
 
 def _seed_settings_note_and_entry(tmp_path, state: StateDB) -> tuple[Settings, SupernoteEntry]:
@@ -162,6 +168,7 @@ def test_ingest_page_records_visible_failure_when_htr_fails(tmp_path, symbol_con
                 year=2026,
                 entry_date=None,
                 title="2026-07-09",
+                source_folder_name=state.get_note("1234").source_folder_name,
                 settings=settings,
                 state=state,
                 htr_client=_FakeFailingHTRClient(),
@@ -195,6 +202,7 @@ def test_ingest_page_retries_htr_failure_on_next_run_instead_of_skipping(tmp_pat
                     year=2026,
                     entry_date=None,
                     title="2026-07-09",
+                    source_folder_name=state.get_note("1234").source_folder_name,
                     settings=settings,
                     state=state,
                     htr_client=client,

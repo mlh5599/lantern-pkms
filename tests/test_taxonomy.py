@@ -95,8 +95,13 @@ def test_slugify() -> None:
 
 
 def test_sources_dir_and_source_page_path() -> None:
-    assert sources_dir("1234") == "Sources/Supernote/1234"
-    assert source_page_path("1234", 3) == "Sources/Supernote/1234/page-03.png"
+    # Takes whatever string it's given (a resolved source_folder_name in real use,
+    # see issue #8 — StateDB owns resolving that, this function is agnostic to it).
+    assert sources_dir("2026-06-24 - Daily") == "Sources/Supernote/2026-06-24 - Daily"
+    assert (
+        source_page_path("2026-06-24 - Daily", 3)
+        == "Sources/Supernote/2026-06-24 - Daily/page-03.png"
+    )
 
 
 def test_custom_taxonomy_config_is_fully_driven_by_config(tmp_path: Path) -> None:
