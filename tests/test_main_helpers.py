@@ -81,12 +81,20 @@ def test_render_entry_text_cancelled_task() -> None:
 
 def test_render_entry_text_event() -> None:
     c = ClassifiedEntry(entry_type="event", state="scheduled", text="Dentist at 2pm", symbol_raw="circle", confidence=0.9, needs_review=False)
-    assert render_entry_text(c) == "- Dentist at 2pm"
+    assert render_entry_text(c) == "○ Dentist at 2pm"
+
+
+def test_render_entry_text_event_indents_nested_entries() -> None:
+    c = ClassifiedEntry(
+        entry_type="event", state="scheduled", text="Call at 3pm", symbol_raw="circle", confidence=0.9,
+        needs_review=False, indent_level=1,
+    )
+    assert render_entry_text(c) == "    ○ Call at 3pm"
 
 
 def test_render_entry_text_mood() -> None:
     c = ClassifiedEntry(entry_type="mood", state=None, text="Feeling good", symbol_raw="equals", confidence=0.9, needs_review=False)
-    assert render_entry_text(c) == "- = Feeling good"
+    assert render_entry_text(c) == "= Feeling good"
 
 
 def test_render_entry_text_needs_review() -> None:
@@ -104,7 +112,7 @@ def test_render_entry_text_indents_nested_entries() -> None:
         entry_type="mood", state=None, text="Uplifted", symbol_raw="equals", confidence=0.9,
         needs_review=False, indent_level=2,
     )
-    assert render_entry_text(c) == "        - = Uplifted"
+    assert render_entry_text(c) == "        = Uplifted"
 
 
 def test_render_entry_text_needs_review_preserves_indent() -> None:

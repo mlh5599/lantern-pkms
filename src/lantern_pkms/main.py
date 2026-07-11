@@ -116,7 +116,9 @@ def render_entry_text(c: ClassifiedEntry) -> str:
             return f"{prefix}- [ ] {c.text} (migrated — no destination resolved){suffix}"
         return f"{prefix}- [ ] {c.text}{suffix}"
     if c.entry_type == "mood":
-        return f"{prefix}- = {c.text}{suffix}"
+        return f"{prefix}= {c.text}{suffix}"
+    if c.entry_type == "event":
+        return f"{prefix}○ {c.text}{suffix}"
     if c.state == "cancelled":
         return f"{prefix}- ~~{c.text}~~ (cancelled){suffix}"
     return f"{prefix}- {c.text}{suffix}"
