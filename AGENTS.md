@@ -72,27 +72,34 @@ in scope.
 
 ---
 
-## Current status (2026-07-09)
+## Current status (2026-07-12)
 
-- **79/79 tests passing.** All core logic (structuring, state, vault writer, the
+- **116/116 tests passing.** All core logic (structuring, state, vault writer, the
   configurable taxonomy system, HTR client, Supernote client, main.py orchestration
   helpers) is unit tested.
-- **Docker build verified.** `docker build .` succeeds, container starts and fails
-  correctly on missing config (pydantic validation, not a crash).
-- **Supernote login is live-verified**, including with MFA enabled. See the
-  critical gotcha below — this took a *lot* of effort to get right.
-- **Folder listing against a real account works.** The folder taxonomy is now
-  fully config-driven (`config/taxonomy.default.yml` + `src/lantern_pkms/taxonomy.py`)
-  rather than hardcoded — but the owner's real folder structure was being
-  reorganized as of this session to fit the required `<category>/<year>/<file>.note`
-  shape cleanly. Re-run `scripts/htr_bench.py list` to get a fresh real listing and
-  confirm the taxonomy config actually matches before relying on it.
-- **HTR transcription quality has NOT been tested** against real handwriting yet.
-  `scripts/htr_bench.py transcribe` is built but unrun.
-- **Docker + Ollama deploy cleanly on a real reference host** via the example
-  Ansible roles (image pulled, container running, confirmed with a real non-check
-  run). The only step that hasn't happened yet is cloning *this* repo onto that host
-  — it's pinned to a git tag that doesn't exist until this repo has a first release.
+- **Live in production**, not just live-verified in isolation: login (including with
+  MFA enabled — see the critical gotcha below), folder listing, HTR transcription,
+  and idempotent vault writes are all running against a real self-hosted Supernote
+  instance and a real Obsidian vault, on an ongoing schedule. This is well past the
+  "not yet tested against real handwriting" stage — HTR quality has been directly,
+  repeatedly evaluated against real pages (see the model-choice note below).
+- **Tagged releases exist** (`v0.0.1` onward) — the "push a first release tag" step
+  some older notes in this file used to describe as blocking is done and is now
+  routine, not a one-time milestone.
+- **A parallel test environment** (its own container/vault/state, isolated from
+  production) exists specifically so changes can be verified against real data
+  without touching production. This is now the *default* place to verify a change —
+  see "Verification workflow" below.
+- **Model choice for HTR is empirically tuned, not assumed.** Default is
+  `qwen3-vl:8b`. A larger model (`qwen3-vl:30b-a3b`) was tried as the default,
+  benchmarked as more accurate on line-by-line structure, shipped, then reverted
+  after a full test-vault reprocess showed it reliably duplicates the leading
+  symbol/mark inside its own transcribed `text` field (e.g. `text="= Tired"` for a
+  mood line) — a worse practical failure than `8b`'s tendency to merge adjacent
+  lines together. The lesson: don't swap the HTR model on the strength of one
+  benchmark page: read the *rendered* output through the real template, not just
+  the raw JSON, and reprocess a real, varied sample before trusting a "more
+  accurate" result.
 - **Renamed from `home-pkms` to `lantern-pkms`** (GitHub repo, Python package
   `lantern_pkms`, env var prefix `LANTERN_PKMS_*`, Obsidian frontmatter namespace
   key `lantern_pkms:`, block ID prefix `lp-`, OpenBao secret path
@@ -101,6 +108,31 @@ in scope.
   old branches, external notes), it's stale — this was a full rename, not a fork or
   an alias.
 - **Committed and pushed.** Repo is public.
+
+---
+
+## Verification workflow
+
+- **File a GitHub issue before implementing anything non-trivial.** Discuss the
+  change, write it up as an issue, get it reviewed/approved there, *then* implement
+  referencing that issue number in the commit. This applies even to product/behavior
+  decisions worked out in conversation with an agent — write them into the issue
+  before or as you start, don't let the issue drift out of sync with what actually
+  shipped.
+- **Verify against the test environment, not production, by default.** A parallel
+  test deployment (own container/vault/state, isolated from production, sharing only
+  credentials and the Ollama instance) exists specifically so a change can be pushed
+  and a full wipe-and-reprocess run freely, without risk to production's real
+  accumulated data. See the companion deployment repo's test-specific playbooks.
+- **A push to production is a migration, not a fresh deploy**, once production holds
+  real accumulated data worth preserving: existing vault files, human edits, and
+  `state.db` rows all have to keep working, not just get regenerated from a clean
+  slate. Only do a full wipe-and-reprocess against production when explicitly told
+  to start over.
+- **Never put real note content in this public repo** — issues, PR descriptions,
+  commit messages, code comments, and this file itself are all public. Use synthetic
+  examples (`"Dentist at 2pm"`, `"Buy milk"`, etc.), never real journal entries, even
+  when quoting real output to illustrate a bug.
 
 ---
 
@@ -193,7 +225,7 @@ adding defensive/fallback parsing logic here.
 ## Commands
 
 ```bash
-.venv/bin/pytest                                    # full test suite (79 tests)
+.venv/bin/pytest                                    # full test suite (116 tests)
 .venv/bin/pytest tests/test_vault_writer_idempotency.py -v   # the critical-path suite
 docker build -t lantern-pkms:test .                     # verify the image builds
 .venv/bin/pip-audit                                   # dependency vuln scan
@@ -224,12 +256,29 @@ explicitly decided.
 
 - [x] Get explicit commit approval and commit this repo
 - [x] Verify Docker + Ollama deploy cleanly on a real reference host
-- [ ] Confirm the real Supernote folder reorganization is complete; re-run
-      `htr_bench.py list`; confirm `config/taxonomy.default.yml` actually matches
-- [ ] Run `scripts/htr_bench.py transcribe` against a real page to evaluate HTR quality
-      and confirm/tune the crossed-out-vs-struck-through symbol semantics
-- [ ] Push a `v0.1.0` git tag once the above is settled (a companion deployment repo
-      pins to it — this is what unblocks the last deploy step, cloning this repo
-      onto the target host)
-- [ ] Run `docker scout`/`trivy` scans on the actual deploy target (already run once
-      in a dev sandbox — see `SECURITY-REVIEW.md` — but worth reconfirming there)
+- [x] Confirm the real Supernote folder reorganization is complete and the taxonomy
+      config matches — production has been ingesting real notes across all
+      configured categories for some time now
+- [x] Run `scripts/htr_bench.py transcribe` against real pages to evaluate HTR
+      quality and tune symbol semantics — done repeatedly, including a full
+      side-by-side model comparison (see "Model choice for HTR" above)
+- [x] Push release tags — routine now, not a one-time milestone
+- [ ] Re-run `docker scout`/`trivy` scans against the *actual* production deploy
+      target specifically (not just a dev sandbox) — `SECURITY-REVIEW.md`'s existing
+      scan predates production actually running; unconfirmed whether this trigger
+      has fired since
+- [ ] Known, accepted HTR limitation: `qwen3-vl:8b` (the current default) tends to
+      merge adjacent handwritten lines into one garbled entry on dense pages. The
+      larger model tried as a fix (`qwen3-vl:30b-a3b`) traded this for a worse
+      problem (duplicated leading marks) and was reverted. Before attempting another
+      model swap, consider whether a prompt fix targeting either failure mode
+      specifically is more tractable than swapping models again.
+- [ ] See issue #21 (milestone "HTR accuracy via correction learning loop") for the
+      longer-term direction on this: capturing the user's own ongoing corrections in
+      Obsidian as a growing labeled dataset, to eventually improve accuracy from
+      real handwriting rather than a bigger stock model. Not started.
+- [ ] **Once production is in real day-to-day use, the "nuke and pave" luxury goes
+      away.** Every push to production from that point on needs a real migration
+      plan (existing vault files, human edits, and `state.db` rows must keep
+      working) — don't default to "wipe and reprocess" for production changes
+      anymore once this happens; see "Verification workflow" above.

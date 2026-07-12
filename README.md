@@ -180,30 +180,43 @@ src/lantern_pkms/
 ├── state/db.py               # SQLite: notes/pages/targets/vault_entries tracking
 └── metrics.py                 # Prometheus metrics
 scripts/htr_bench.py          # standalone Phase-0 verification CLI
-tests/                         # 107 tests, run with `pytest`
+tests/                         # 116 tests, run with `pytest`
 SECURITY-REVIEW.md             # dependency/image risk review — required before use
 ```
 
 ## Status
 
-**Fully built and tested (107/107 passing):** structuring logic, state tracking, the
+**Fully built and tested (116/116 passing):** structuring logic, state tracking, the
 vault writer's whole-file recreate/fork guarantees, the configurable taxonomy system,
 the Supernote client, the Ollama HTR client, and end-to-end orchestration.
 
-**Live-verified against a real self-hosted Supernote instance:** login (including
-with MFA enabled — the device/terminal login path bypasses it, same as the physical
-tablet) and folder listing. See `SupernoteClient.login()`'s docstring for a genuinely
-load-bearing implementation detail found the hard way — don't touch the `timestamp`
-handling without reading it first.
+**Live in production**, running the full pipeline against a real self-hosted
+Supernote instance and writing into a real Obsidian vault — login (including with
+MFA enabled — the device/terminal login path bypasses it, same as the physical
+tablet), folder listing, HTR transcription, and idempotent vault writes are all
+verified against real handwriting, not just synthetic test fixtures. See
+`SupernoteClient.login()`'s docstring for a genuinely load-bearing implementation
+detail found the hard way — don't touch the `timestamp` handling without reading it
+first.
 
-**Infrastructure deploys cleanly:** on a real reference host, Docker and Ollama
-(image pulled, container running) both deploy successfully via the example Ansible
-roles. The only remaining deploy step is cloning this repo itself at a pinned tag —
-waiting on this repo's first real release.
+**Tagged releases** (`v0.0.1` through the current tag) track meaningful fixes and
+changes as they ship — see git tags/history for the changelog; there's no separate
+`CHANGELOG.md`.
 
-**Not yet done:** end-to-end HTR transcription quality hasn't been evaluated against
-real handwriting yet (`scripts/htr_bench.py transcribe`), and this repo hasn't been
-tagged/released yet.
+**A parallel test environment** (isolated container, vault, and state — see the
+companion deployment repo) is the default place to verify a change against real
+data before it reaches production; a production push is treated as a migration
+(existing accumulated vault/state data must keep working), not a fresh reprocess,
+except when explicitly starting over.
+
+**Model choice for HTR is empirically tuned, not assumed.** The default
+(`qwen3-vl:8b`, CPU-only by design — see "Architecture" above) was chosen after
+directly comparing it against a larger model on real pages: the larger model
+transcribed with better line-by-line structure but turned out to reliably duplicate
+the leading symbol/mark inside its own transcribed text, which is a worse practical
+failure than the smaller model's tendency to merge adjacent lines. Don't assume
+"bigger model = better" for this pipeline without a real side-by-side comparison
+(`scripts/htr_bench.py transcribe --model ... [--gpu]`) against actual handwriting.
 
 ## Development
 

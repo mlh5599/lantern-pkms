@@ -48,7 +48,7 @@ See the plan's "Security review" section for the full policy.
   not exploitable through this application's actual code. Acceptable to proceed.
   A smaller/hardened base image could reduce this further as an optional future
   hardening step, not a blocker for v1.
-- **Risk posture**: runs as a non-root user (`homepkms`, uid 1000) inside the
+- **Risk posture**: runs as a non-root user (`lanternpkms`, uid 1000) inside the
   container — see `Dockerfile`.
 
 ---
