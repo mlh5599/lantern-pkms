@@ -256,6 +256,33 @@ reference of how the pieces fit together (OpenBao-backed secrets, systemd-adjace
 service management, Prometheus/Grafana telemetry, etc.) if you're deploying via
 Ansible yourself.
 
+### Running it
+
+No external cron/systemd timer is needed — the container *is* the scheduler.
+`main.py`'s `run()` is a self-contained loop: process everything once immediately on
+startup, then `sleep(LANTERN_PKMS_POLL_INTERVAL_MINUTES * 60)` (default `1440` = once
+a day) and repeat, forever. A per-item failure is logged and counted
+(`pipeline_errors_total`) but never crashes the loop — the next scheduled run tries
+again. Combined with the container's `restart: unless-stopped` policy, this means a
+host reboot or crash resumes the schedule on its own, with no manual restart needed.
+
+One nuance: the interval is relative to *when the container last started/ran*, not a
+pinned wall-clock time — a container that's been up for a while runs roughly once a
+day, but not necessarily at the same time each day, and any restart (deploy, host
+reboot, manual restart) immediately kicks off a new run and resets the 24h clock from
+that moment.
+
+- **To force an immediate run** (rather than waiting for the next scheduled one),
+  restart the container — e.g. `docker compose restart` (or redeploy). The loop's
+  first iteration always runs immediately, before its first sleep.
+- **To check whether/when it last ran successfully**, scrape the Prometheus
+  `/metrics` endpoint (`LANTERN_PKMS_METRICS_PORT`, default `9090`):
+  `last_successful_run_timestamp` (a Gauge — Unix timestamp of the last fully-clean
+  run), `notes_ingested_total` / `htr_pages_processed_total` (Counters, cumulative
+  since container start), `pipeline_errors_total`, and
+  `htr_low_confidence_flagged_total`. Plain container logs (`docker logs`) also show
+  each note/page as it's processed.
+
 ## Security
 
 Every new dependency and Docker image gets a documented risk review before use —
