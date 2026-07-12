@@ -14,6 +14,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel
 
+from lantern_pkms.htr.schema import MAX_INDENT_LEVEL
+
 
 class SymbolDef(BaseModel):
     glyph: str
@@ -82,6 +84,8 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
     task's checkbox state (and a crossed-out mark's "complete" state) whenever
     confidence merely dipped.
     """
+    indent_level = max(0, min(line.indent_level, MAX_INDENT_LEVEL))
+
     symbol = config.symbols.get(line.raw_symbol)
     if symbol is None:
         return ClassifiedEntry(
@@ -91,7 +95,7 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
             symbol_raw=line.raw_symbol,
             confidence=line.confidence,
             needs_review=True,
-            indent_level=line.indent_level,
+            indent_level=indent_level,
             review_reason=f"unrecognized symbol {line.raw_symbol!r}",
         )
 
@@ -115,7 +119,7 @@ def classify(line: VLMLine, config: SymbolMappingConfig) -> ClassifiedEntry:
         symbol_raw=line.raw_symbol,
         confidence=line.confidence,
         needs_review=low_confidence,
-        indent_level=line.indent_level,
+        indent_level=indent_level,
         review_reason=(
             f"confidence {line.confidence:.2f} below threshold {config.confidence_threshold:.2f}"
             if low_confidence

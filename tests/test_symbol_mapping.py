@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from lantern_pkms.htr.schema import MAX_INDENT_LEVEL
 from lantern_pkms.structuring.symbol_mapping import SymbolMappingConfig, VLMLine, classify
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "symbol-mapping.default.yml"
@@ -127,3 +128,15 @@ def test_indent_level_passes_through_on_review_paths(config: SymbolMappingConfig
 
     unrecognized = VLMLine(raw_symbol="triangle", text="???", confidence=0.9, indent_level=3)
     assert classify(unrecognized, config).indent_level == 3
+
+
+def test_runaway_indent_level_is_clamped(config: SymbolMappingConfig) -> None:
+    # See issue #20: qwen3-vl:30b-a3b once returned indent_level 18/27/36/45/54 on a
+    # real page (looked like a pixel/character offset, not a nesting-stop count),
+    # exploding the rendered indentation. A schema max bounds generation, but this is
+    # the defensive backstop against whatever the model actually returns.
+    line = VLMLine(raw_symbol="bullet", text="Set up deep dive sessions", confidence=0.9, indent_level=54)
+    assert classify(line, config).indent_level == MAX_INDENT_LEVEL
+
+    unrecognized = VLMLine(raw_symbol="triangle", text="???", confidence=0.9, indent_level=27)
+    assert classify(unrecognized, config).indent_level == MAX_INDENT_LEVEL

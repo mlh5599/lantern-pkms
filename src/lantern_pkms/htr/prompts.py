@@ -26,7 +26,11 @@ line is a timebox boundary marker (see below). Most lines are "entry".
 for a line that starts at the page's left margin. A line indented one step in from its \
 parent bullet is indent_level 1, one step further is 2, and so on — this is how the \
 page captures that one note belongs under another, so read it carefully off the actual \
-horizontal starting position of the line, not the symbol type.
+horizontal starting position of the line, not the symbol type. This is a small count of \
+discrete nesting steps, NOT a pixel or character offset — real bujo pages almost never \
+nest more than 3-4 levels deep, so if you find yourself reporting a large number, you \
+are measuring the wrong thing; re-read the indentation as "which ancestor bullet is this \
+under" instead.
 - raw_symbol: which leading mark it starts with (see the list below). Use "other" \
 if it doesn't match any of them. Irrelevant filler (e.g. "other") for time_start/time_end.
 - symbol_crossed_out: true if the leading mark itself has a line/X drawn through it.

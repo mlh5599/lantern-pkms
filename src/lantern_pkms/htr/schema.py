@@ -16,6 +16,14 @@ RAW_SYMBOLS = ["bullet", "circle", "dash", "equals", "chevron_left", "chevron_ri
 # the symbol/indent fields are irrelevant filler the model should leave at defaults.
 LINE_KINDS = ["entry", "time_start", "time_end"]
 
+# A real bujo page rarely nests more than 3-4 levels deep. This is a generation-time
+# guardrail (constrains the model's structured output directly), not just a display
+# limit — see MAX_INDENT_LEVEL in structuring/symbol_mapping.py for the matching
+# defensive clamp applied to whatever the model actually returns, since a schema bound
+# alone isn't a hard guarantee (issue #20: qwen3-vl:30b-a3b once returned indent_level
+# 18/27/36/45/54 on a real page, exploding the rendered indentation).
+MAX_INDENT_LEVEL = 6
+
 PAGE_LINES_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -25,7 +33,7 @@ PAGE_LINES_SCHEMA: dict = {
                 "type": "object",
                 "properties": {
                     "kind": {"type": "string", "enum": LINE_KINDS},
-                    "indent_level": {"type": "integer", "minimum": 0},
+                    "indent_level": {"type": "integer", "minimum": 0, "maximum": MAX_INDENT_LEVEL},
                     "raw_symbol": {"type": "string", "enum": RAW_SYMBOLS},
                     "symbol_crossed_out": {"type": "boolean"},
                     "text_struck_through": {"type": "boolean"},
