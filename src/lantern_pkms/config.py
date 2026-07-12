@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LANTERN_PKMS_", env_file=".env", extra="ignore")
 
     ollama_host: str
-    ollama_model: str = "qwen3-vl:30b-a3b"
+    ollama_model: str = "qwen3-vl:8b"
 
     supernote_cloud_url: str
     supernote_username: str
