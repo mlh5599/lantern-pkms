@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from lantern_pkms.main import (
     note_already_fully_processed,
     render_entry_text,
     render_heading_text,
+    seconds_until_next_run_at,
 )
 from lantern_pkms.state.db import NoteRecord
 from lantern_pkms.structuring.symbol_mapping import ClassifiedEntry, SymbolMappingConfig, VLMLine
@@ -54,6 +56,23 @@ def test_note_unchanged_and_has_pages_is_skipped() -> None:
 def test_note_content_changed_is_not_skipped_even_with_pages() -> None:
     existing = _note_record(content_sha256="old-hash")
     assert note_already_fully_processed(existing, "new-hash", has_pages=True) is False
+
+
+def test_seconds_until_next_run_at_later_today() -> None:
+    now = datetime(2026, 7, 12, 14, 0, 0)
+    assert seconds_until_next_run_at("18:30", now) == 4.5 * 3600
+
+
+def test_seconds_until_next_run_at_already_passed_today_rolls_to_tomorrow() -> None:
+    now = datetime(2026, 7, 12, 14, 0, 0)
+    assert seconds_until_next_run_at("02:00", now) == 12 * 3600
+
+
+def test_seconds_until_next_run_at_exact_match_rolls_to_tomorrow() -> None:
+    # See issue #22 — treating "right now" as "already happened" (not "due now")
+    # keeps the scheduler loop from computing a zero-second sleep and double-running.
+    now = datetime(2026, 7, 12, 2, 0, 0)
+    assert seconds_until_next_run_at("02:00", now) == 24 * 3600
 
 
 def test_render_entry_text_open_task() -> None:

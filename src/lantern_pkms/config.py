@@ -5,9 +5,13 @@ OpenBao. Locally, export LANTERN_PKMS_* env vars or use a .env file (untracked).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_RUN_AT_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
 class Settings(BaseSettings):
@@ -26,4 +30,17 @@ class Settings(BaseSettings):
     taxonomy_config_path: Path = Path("/config/taxonomy.yml")
 
     poll_interval_minutes: int = 1440  # nightly by default — not real-time, CPU-bound
+    # Optional fixed daily wall-clock time ("HH:MM", 24h, container-local — set the
+    # standard TZ env var to control what "local" means), e.g. "02:00". When set,
+    # this takes priority over poll_interval_minutes for the gap *between* runs (the
+    # first run on startup always happens immediately either way) — see
+    # main.py's seconds_until_next_run_at(). None keeps the plain interval behavior.
+    run_at: str | None = None
     metrics_port: int = 9090
+
+    @field_validator("run_at")
+    @classmethod
+    def _validate_run_at(cls, value: str | None) -> str | None:
+        if value is not None and not _RUN_AT_RE.match(value):
+            raise ValueError(f"run_at must be 'HH:MM' in 24h time, got {value!r}")
+        return value

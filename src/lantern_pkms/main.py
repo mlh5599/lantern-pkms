@@ -15,7 +15,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from pydantic import BaseModel
 
@@ -90,6 +90,21 @@ def note_already_fully_processed(
     state cleanup needed.
     """
     return existing is not None and existing.content_sha256 == content_hash and has_pages
+
+
+def seconds_until_next_run_at(run_at: str, now: datetime | None = None) -> float:
+    """Seconds until the next occurrence of `run_at` ("HH:MM", 24h, local time).
+
+    Always strictly in the future — if `run_at` equals the current time exactly (to
+    the second), that's treated as "already happened," rolling to tomorrow, so the
+    scheduler loop in run() never computes a zero/negative sleep and double-runs.
+    """
+    now = now or datetime.now()
+    hour, minute = (int(part) for part in run_at.split(":"))
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
 
 
 def render_entry_text(c: ClassifiedEntry) -> str:
@@ -433,14 +448,20 @@ def run() -> None:
     logging.basicConfig(level=logging.INFO)
     settings = Settings()
     start_metrics_server(settings.metrics_port)
-    logger.info("lantern-pkms starting, poll interval %d minutes", settings.poll_interval_minutes)
+    if settings.run_at:
+        logger.info("lantern-pkms starting, scheduled to run daily at %s (local time)", settings.run_at)
+    else:
+        logger.info("lantern-pkms starting, poll interval %d minutes", settings.poll_interval_minutes)
     while True:
         try:
             run_once(settings)
         except Exception:
             pipeline_errors_total.inc()
             logger.exception("run_once() failed")
-        time.sleep(settings.poll_interval_minutes * 60)
+        sleep_seconds = (
+            seconds_until_next_run_at(settings.run_at) if settings.run_at else settings.poll_interval_minutes * 60
+        )
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":

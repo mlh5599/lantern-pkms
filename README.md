@@ -101,7 +101,8 @@ variable or a YAML config file you can override.
 | `LANTERN_PKMS_STATE_DB_PATH` | Where to keep the SQLite state file |
 | `LANTERN_PKMS_SYMBOL_MAPPING_PATH` | Path to your symbol-mapping config (see below) |
 | `LANTERN_PKMS_TAXONOMY_CONFIG_PATH` | Path to your folder-taxonomy config (see below) |
-| `LANTERN_PKMS_POLL_INTERVAL_MINUTES` | How often to sync (default: nightly) |
+| `LANTERN_PKMS_POLL_INTERVAL_MINUTES` | How often to sync (default: nightly). Ignored if `RUN_AT` is set. |
+| `LANTERN_PKMS_RUN_AT` | Optional fixed daily time to sync, `"HH:MM"` 24h, container-local (set the standard `TZ` env var to control what "local" means) — e.g. `"02:00"`. Overrides `POLL_INTERVAL_MINUTES` for the gap between runs; see "Running it" below. |
 | `LANTERN_PKMS_METRICS_PORT` | Prometheus `/metrics` port |
 
 **`config/symbol-mapping.default.yml`** — your bullet-journal symbol semantics
@@ -260,17 +261,25 @@ Ansible yourself.
 
 No external cron/systemd timer is needed — the container *is* the scheduler.
 `main.py`'s `run()` is a self-contained loop: process everything once immediately on
-startup, then `sleep(LANTERN_PKMS_POLL_INTERVAL_MINUTES * 60)` (default `1440` = once
-a day) and repeat, forever. A per-item failure is logged and counted
-(`pipeline_errors_total`) but never crashes the loop — the next scheduled run tries
-again. Combined with the container's `restart: unless-stopped` policy, this means a
-host reboot or crash resumes the schedule on its own, with no manual restart needed.
+startup, then sleep before repeating, forever. A per-item failure is logged and
+counted (`pipeline_errors_total`) but never crashes the loop — the next scheduled run
+tries again. Combined with the container's `restart: unless-stopped` policy, this
+means a host reboot or crash resumes the schedule on its own, with no manual restart
+needed.
 
-One nuance: the interval is relative to *when the container last started/ran*, not a
-pinned wall-clock time — a container that's been up for a while runs roughly once a
-day, but not necessarily at the same time each day, and any restart (deploy, host
-reboot, manual restart) immediately kicks off a new run and resets the 24h clock from
-that moment.
+Two scheduling modes, controlled by which env var you set:
+
+- **`LANTERN_PKMS_POLL_INTERVAL_MINUTES`** (default `1440` = once a day) — sleeps a
+  fixed *interval* after each run. Simple, but the interval is relative to *when the
+  container last started/ran*, not a pinned wall-clock time: any restart (deploy,
+  host reboot, manual restart) immediately kicks off a new run and resets the clock
+  from that moment, so the effective time-of-day drifts.
+- **`LANTERN_PKMS_RUN_AT`** (e.g. `"02:00"`) — sleeps until the next occurrence of
+  that wall-clock time instead, so it reliably runs overnight (or whenever you pick)
+  regardless of restarts. Takes priority over `POLL_INTERVAL_MINUTES` when set. The
+  startup run still always happens immediately either way — `RUN_AT` only changes the
+  gap *between* runs, so a fresh deploy still lets you confirm things work right away
+  instead of waiting up to a day.
 
 - **To force an immediate run** (rather than waiting for the next scheduled one),
   restart the container — e.g. `docker compose restart` (or redeploy). The loop's
