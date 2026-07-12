@@ -79,11 +79,8 @@ flowchart LR
     A[".note file<br/>(downloaded)"] --> B["supernote pkg's parser<br/>.note → page PNG"]
     B --> C["Ollama VLM call<br/>structured JSON per line"]
     C --> D["deterministic symbol<br/>mapping (config-driven,<br/>no LLM)"]
-    D --> E{"migration<br/>symbol?"}
-    E -- "no" --> F["render line into<br/>target vault file"]
-    E -- "yes (&lt; or &gt;)" --> G["split: cross-reference<br/>at origin + live entry<br/>at destination"]
+    D --> F["render line into<br/>target vault file"]
     F --> H["idempotent vault<br/>writer"]
-    G --> H
     H --> I[("vault file")]
 ```
 
@@ -131,8 +128,8 @@ mapping (tune as your own convention evolves):
 | `○` circle | Event | |
 | `–` dash | Note | |
 | `=` equals | Mood/emotion | |
-| `<` left chevron | Task migrated to backlog | destination: configurable backlog file (see `config/taxonomy.default.yml`) |
-| `>` right chevron | Task migrated to next day | destination: next day's Daily note |
+| `<` left chevron | Task deferred to backlog | renders in place with its literal mark — moving it is manual, not automatic |
+| `>` right chevron | Task pushed to next day | renders in place with its literal mark — moving it is manual, not automatic |
 | struck-through text | Cancelled | any entry type |
 
 The vision model only reports *what it sees* (raw symbol, crossed-out, struck-through,
@@ -158,9 +155,8 @@ system-owned or fully yours, never a line-by-line mix:
   back to the note it forked from, with a matching backlink written once into the
   old note. Your original note keeps its path forever, so links you've already made
   into it never break. Notes that accumulate over a long time (Backlog, Future Log,
-  Monthly collections, Daily notes with migrated-in tasks) can grow into a chain
-  this way — each edit adds one more link, and only the current tip keeps receiving
-  new entries.
+  Monthly collections) can grow into a chain this way — each edit adds one more
+  link, and only the current tip keeps receiving new entries.
 - **Files are found by content, not a trusted path** — renaming an untouched note
   in Obsidian doesn't break tracking (frontmatter under a namespaced `lantern_pkms:`
   key is what's actually matched on).
@@ -179,7 +175,7 @@ src/lantern_pkms/
 │   ├── client.py            # hand-rolled client for the device-sync protocol
 │   └── note_parser.py       # wraps the `supernote` pkg's .note parser
 ├── htr/                     # Ollama structured-output HTR client
-├── structuring/              # symbol_mapping.py, migration.py — deterministic
+├── structuring/              # symbol_mapping.py — deterministic
 ├── vault/writer.py           # idempotent, human-edit-safe vault writer
 ├── state/db.py               # SQLite: notes/pages/targets/vault_entries tracking
 └── metrics.py                 # Prometheus metrics

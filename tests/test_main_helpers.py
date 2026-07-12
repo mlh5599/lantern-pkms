@@ -1,4 +1,3 @@
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -14,20 +13,13 @@ from lantern_pkms.main import (
 )
 from lantern_pkms.state.db import NoteRecord
 from lantern_pkms.structuring.symbol_mapping import ClassifiedEntry, SymbolMappingConfig, VLMLine
-from lantern_pkms.taxonomy import TaxonomyConfig
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "taxonomy.default.yml"
 SYMBOL_CONFIG_PATH = Path(__file__).parent.parent / "config" / "symbol-mapping.default.yml"
 
 
 @pytest.fixture(scope="module")
 def symbol_config() -> SymbolMappingConfig:
     return SymbolMappingConfig.load(SYMBOL_CONFIG_PATH)
-
-
-@pytest.fixture(scope="module")
-def taxonomy() -> TaxonomyConfig:
-    return TaxonomyConfig.load(CONFIG_PATH)
 
 
 def _note_record(content_sha256: str = "abc123") -> NoteRecord:
@@ -143,15 +135,20 @@ def test_render_entry_text_flagged_complete_task_keeps_checkmark() -> None:
     assert render_entry_text(c).startswith("- [x] Call dentist")
 
 
-def test_render_entry_text_migration_state_with_no_destination_resolved() -> None:
-    # Reachable only if entry_date was None when routed in append_rendered_lines
-    # (see that function) — should surface rather than silently becoming a bare
-    # open checkbox with no indication it was ever a migration mark.
+def test_render_entry_text_migrated_next_day() -> None:
     c = ClassifiedEntry(
         entry_type="task", state="migrated_next_day", text="Finish report",
         symbol_raw="chevron_right", confidence=0.9, needs_review=False,
     )
-    assert render_entry_text(c) == "- [ ] Finish report (migrated — no destination resolved)"
+    assert render_entry_text(c) == "> Finish report"
+
+
+def test_render_entry_text_migrated_backlog() -> None:
+    c = ClassifiedEntry(
+        entry_type="task", state="migrated_backlog", text="Plan trip",
+        symbol_raw="chevron_left", confidence=0.9, needs_review=False,
+    )
+    assert render_entry_text(c) == "< Plan trip"
 
 
 def test_render_heading_text_with_end() -> None:
@@ -231,45 +228,25 @@ def test_group_page_items_entries_before_first_timebox_are_ungrouped(symbol_conf
     assert isinstance(items[1], HeadingItem)
 
 
-def test_append_rendered_lines_non_migration_goes_to_default_path(taxonomy: TaxonomyConfig) -> None:
+def test_append_rendered_lines_goes_to_default_path() -> None:
     c = ClassifiedEntry(entry_type="task", state="open", text="Buy milk", symbol_raw="bullet", confidence=0.9, needs_review=False)
     rendered: dict = {}
-    append_rendered_lines(rendered, "lp-1-1-0", 0, c, 2026, date(2026, 7, 9), "Daily/2026/2026-07-09.md", taxonomy)
+    append_rendered_lines(rendered, "lp-1-1-0", 0, c, "Daily/2026/2026-07-09.md")
     assert list(rendered.keys()) == ["Daily/2026/2026-07-09.md"]
     assert rendered["Daily/2026/2026-07-09.md"][0].text == "- [ ] Buy milk"
 
 
-def test_append_rendered_lines_migrated_next_day_splits_across_two_files(taxonomy: TaxonomyConfig) -> None:
+def test_append_rendered_lines_migrated_entry_renders_in_place_not_split() -> None:
+    # See issue #13: auto-migration to a destination file was paused — a migrated
+    # entry stays in its origin note with its literal mark, nothing gets copied.
     c = ClassifiedEntry(
         entry_type="task", state="migrated_next_day", text="Finish report",
         symbol_raw="chevron_right", confidence=0.9, needs_review=False,
     )
     rendered: dict = {}
-    append_rendered_lines(rendered, "lp-1-1-0", 0, c, 2026, date(2026, 7, 9), "Daily/2026/2026-07-09.md", taxonomy)
+    append_rendered_lines(rendered, "lp-1-1-0", 0, c, "Daily/2026/2026-07-09.md")
 
-    assert set(rendered.keys()) == {"Daily/2026/2026-07-09.md", "Journal/Daily/2026/2026-07-10.md"}
+    assert list(rendered.keys()) == ["Daily/2026/2026-07-09.md"]
     origin_line = rendered["Daily/2026/2026-07-09.md"][0]
-    assert "[ ]" in origin_line.text
-    assert "migrated to [[Journal/Daily/2026/2026-07-10]]" in origin_line.text
+    assert origin_line.text == "> Finish report"
     assert origin_line.block_id == "lp-1-1-0"
-
-    dest_line = rendered["Journal/Daily/2026/2026-07-10.md"][0]
-    assert dest_line.text == "- [ ] Finish report (migrated from [[Daily/2026/2026-07-09]])"
-    assert dest_line.block_id == "lp-1-1-0-dest"
-
-
-def test_append_rendered_lines_migrated_backlog_targets_future_backlog_file(taxonomy: TaxonomyConfig) -> None:
-    c = ClassifiedEntry(
-        entry_type="task", state="migrated_backlog", text="Plan trip",
-        symbol_raw="chevron_left", confidence=0.9, needs_review=False,
-    )
-    rendered: dict = {}
-    append_rendered_lines(rendered, "lp-1-1-0", 0, c, 2026, date(2026, 7, 9), "Daily/2026/2026-07-09.md", taxonomy)
-
-    assert "Journal/Future/2026/Backlog.md" in rendered
-    origin_line = rendered["Daily/2026/2026-07-09.md"][0]
-    assert "[ ]" in origin_line.text
-    assert "migrated to [[Journal/Future/2026/Backlog]]" in origin_line.text
-
-    dest_line = rendered["Journal/Future/2026/Backlog.md"][0]
-    assert dest_line.text == "- [ ] Plan trip (migrated from [[Daily/2026/2026-07-09]])"

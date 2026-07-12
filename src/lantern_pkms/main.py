@@ -1,7 +1,7 @@
 """Ingestion scheduler loop — Supernote -> HTR -> Lantern.
 
 This is orchestration glue over already-independently-tested pieces (client,
-note_parser, ollama_client, symbol_mapping, migration, vault.writer, taxonomy). It's
+note_parser, ollama_client, symbol_mapping, vault.writer, taxonomy). It's
 the least independently-testable part of lantern-pkms since a real end-to-end run needs
 live Supernote credentials, a running Ollama, and a real vault — that's exactly what
 Phase 0 (scripts/htr_bench.py) is for. Pure helper functions below (text rendering)
@@ -31,7 +31,6 @@ from lantern_pkms.metrics import (
     start_metrics_server,
 )
 from lantern_pkms.state.db import NoteRecord, PageRecord, StateDB, make_block_id
-from lantern_pkms.structuring.migration import compute_migration, is_migration_state
 from lantern_pkms.structuring.symbol_mapping import (
     ClassifiedEntry,
     SymbolMappingConfig,
@@ -109,11 +108,10 @@ def render_entry_text(c: ClassifiedEntry) -> str:
             return f"{prefix}- [x] {c.text}{suffix}"
         if c.state == "cancelled":
             return f"{prefix}- [-] ~~{c.text}~~ (cancelled){suffix}"
-        if c.state in ("migrated_backlog", "migrated_next_day"):
-            # Reachable only if entry_date was None when this was routed in
-            # append_rendered_lines, so no destination could be resolved —
-            # surface that rather than silently rendering a bare checkbox.
-            return f"{prefix}- [ ] {c.text} (migrated — no destination resolved){suffix}"
+        if c.state == "migrated_backlog":
+            return f"{prefix}< {c.text}{suffix}"
+        if c.state == "migrated_next_day":
+            return f"{prefix}> {c.text}{suffix}"
         return f"{prefix}- [ ] {c.text}{suffix}"
     if c.entry_type == "mood":
         return f"{prefix}= {c.text}{suffix}"
@@ -182,40 +180,14 @@ def append_rendered_lines(
     block_id: str,
     entry_index: int,
     c: ClassifiedEntry,
-    year: int,
-    entry_date: date | None,
     default_path: str,
-    taxonomy: TaxonomyConfig,
 ) -> None:
-    """Route one classified entry to its target file(s), splitting migrations across
-    an origin cross-reference and a destination live entry (see the vault writer's
-    docstring: "a migrated task is one canonical entry that moves").
+    """Route one classified entry to its target file, rendered in place.
+
+    Migrated entries (`<`/`>`) render inline with their literal mark rather than
+    being auto-copied to a destination file — see issue #13 for why auto-migration
+    was paused in favor of the user moving deferred tasks themselves.
     """
-    if is_migration_state(c.state) and entry_date is not None:
-        dest = compute_migration(c.state, entry_date)
-        assert dest is not None  # is_migration_state already guarantees this
-        if dest.kind == "next_day":
-            dest_path = taxonomy.default_target_path("daily", dest.target_date.year, "", dest.target_date)
-        else:
-            dest_path = taxonomy.backlog_path(year)
-
-        link_target = dest_path.removesuffix(".md")
-        origin_text = f"{INDENT_UNIT * c.indent_level}- [ ] ~~{c.text}~~ → migrated to [[{link_target}]]"
-        rendered_by_target.setdefault(default_path, []).append(
-            RenderedLine(block_id=block_id, text=origin_text, entry_type="task", entry_index=entry_index)
-        )
-
-        origin_link = default_path.removesuffix(".md")
-        dest_entry = ClassifiedEntry(
-            entry_type="task", state="open", text=c.text, symbol_raw=c.symbol_raw,
-            confidence=c.confidence, needs_review=False,
-        )
-        dest_text = f"{render_entry_text(dest_entry)} (migrated from [[{origin_link}]])"
-        rendered_by_target.setdefault(dest_path, []).append(
-            RenderedLine(block_id=f"{block_id}-dest", text=dest_text, entry_type="task", entry_index=entry_index)
-        )
-        return
-
     rendered_by_target.setdefault(default_path, []).append(
         RenderedLine(
             block_id=block_id, text=render_entry_text(c), entry_type=c.entry_type,
@@ -389,7 +361,7 @@ def _ingest_page(
     for i, item in enumerate(items):
         block_id = make_block_id(entry.id, page_number, i)
         if isinstance(item, EntryItem):
-            append_rendered_lines(rendered_by_target, block_id, i, item.entry, year, entry_date, default_path, taxonomy)
+            append_rendered_lines(rendered_by_target, block_id, i, item.entry, default_path)
         else:
             append_heading_line(rendered_by_target, block_id, i, item, default_path)
 
