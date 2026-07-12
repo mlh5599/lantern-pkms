@@ -18,6 +18,24 @@ lines by what kind of mark they start with. A line about a mood written directly
 an event must stay directly after that event in your output, not be moved elsewhere. \
 Do NOT reword, summarize, or "clean up" the handwriting — transcribe it verbatim.
 
+If the page is blank, mostly blank, or has nothing actually handwritten on it — only \
+pre-printed template elements like a column header, day-of-week labels, or ruled/dotted \
+lines with no ink in them — return an empty "lines" array. This is a hard requirement, \
+not a fallback: you must NEVER invent, guess, or fabricate plausible-sounding \
+bullet-journal content (fake events, fake dates, fake tasks) just because the schema \
+expects a "lines" array. A fabricated entry that merely looks like real content is a \
+worse failure than an honest empty result — the user will trust it as something they \
+actually wrote. When in doubt about whether something is really there, report fewer \
+entries with honest low confidence rather than more entries that look plausible.
+
+Don't confuse "the page has ruled/dotted lines" with "the page has content" — a table, \
+grid, or ruled template with empty rows is still blank if nothing is written in those \
+rows. If you find yourself about to report several lines in a row with empty or \
+near-empty text, that's a sign you're enumerating blank ruled lines rather than real \
+content — omit those lines entirely instead of reporting them as empty low-confidence \
+placeholders. An empty "lines" array is the correct output for an empty page, not a \
+list of empty entries.
+
 For each distinct line/entry on the page, in reading order, report:
 
 - kind: "entry" for a normal bullet-journal line, or "time_start"/"time_end" if the \
