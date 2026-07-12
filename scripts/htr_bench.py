@@ -150,8 +150,8 @@ def cmd_transcribe(args: argparse.Namespace) -> None:
     prompt = build_transcription_prompt(symbol_config)
 
     ollama_host = _require_env("OLLAMA_HOST")
-    print(f"\nSending page to Ollama ({ollama_host}, model={args.model})...")
-    htr_client = OllamaHTRClient(ollama_host, model=args.model)
+    print(f"\nSending page to Ollama ({ollama_host}, model={args.model}, gpu={args.gpu})...")
+    htr_client = OllamaHTRClient(ollama_host, model=args.model, force_cpu=not args.gpu)
     try:
         vlm_lines = htr_client.transcribe_page(png_bytes, prompt)
     finally:
@@ -199,6 +199,9 @@ def main() -> None:
     )
     transcribe_parser.add_argument("--page", type=int, default=0, help="0-indexed page number")
     transcribe_parser.add_argument("--model", default="qwen3-vl:8b", help="Ollama model tag")
+    transcribe_parser.add_argument(
+        "--gpu", action="store_true", help="Run on GPU instead of the pipeline's default CPU-only inference"
+    )
     transcribe_parser.add_argument("--save-image", help="Path to save the rendered page PNG for visual comparison")
     transcribe_parser.add_argument(
         "--symbol-config", default=str(DEFAULT_SYMBOL_CONFIG), help="Path to symbol-mapping yml"
