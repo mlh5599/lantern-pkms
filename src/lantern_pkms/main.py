@@ -118,22 +118,30 @@ def render_entry_text(c: ClassifiedEntry) -> str:
         reason = c.review_reason or "flagged"
         suffix = f" (confidence {c.confidence:.2f} — {reason})"
 
+    if c.entry_type == "mood":
+        # No BuJo Bullets checkbox equivalent — stays on its own bare "=" glyph,
+        # cancelled or not.
+        if c.state == "cancelled":
+            return f"{prefix}= ~~{c.text}~~ (cancelled){suffix}"
+        return f"{prefix}= {c.text}{suffix}"
+
+    # BuJo Bullets convention (github.com/frankolson/obsidian-bujo-bullets): a
+    # cancelled/struck-through entry of any other type — task, event, note —
+    # renders as the plugin's shared "Irrelevant" checkbox state, not a
+    # per-type marker.
+    if c.state == "cancelled":
+        return f"{prefix}- [-] ~~{c.text}~~ (cancelled){suffix}"
+
     if c.entry_type == "task":
         if c.state == "complete":
             return f"{prefix}- [x] {c.text}{suffix}"
-        if c.state == "cancelled":
-            return f"{prefix}- [-] ~~{c.text}~~ (cancelled){suffix}"
         if c.state == "migrated_backlog":
-            return f"{prefix}< {c.text}{suffix}"
+            return f"{prefix}- [<] {c.text}{suffix}"
         if c.state == "migrated_next_day":
-            return f"{prefix}> {c.text}{suffix}"
+            return f"{prefix}- [>] {c.text}{suffix}"
         return f"{prefix}- [ ] {c.text}{suffix}"
-    if c.entry_type == "mood":
-        return f"{prefix}= {c.text}{suffix}"
     if c.entry_type == "event":
-        return f"{prefix}○ {c.text}{suffix}"
-    if c.state == "cancelled":
-        return f"{prefix}- ~~{c.text}~~ (cancelled){suffix}"
+        return f"{prefix}- [o] {c.text}{suffix}"
     return f"{prefix}- {c.text}{suffix}"
 
 

@@ -121,17 +121,25 @@ Copy either default file, edit it, and point the corresponding env var at your c
 ## Bullet-journal symbol semantics
 
 Configurable, not hardcoded — see `config/symbol-mapping.default.yml`. Default
-mapping (tune as your own convention evolves):
+mapping (tune as your own convention evolves) — the "Renders as" column is the
+*output* markdown `render_entry_text()` (`src/lantern_pkms/main.py`) produces, which
+is a separate concern from the handwritten symbol itself:
 
-| Symbol | Meaning | Notes |
+| Handwritten symbol | Meaning | Renders as |
 |---|---|---|
-| `•` bullet | Task | crossed-out → complete |
-| `○` circle | Event | |
-| `–` dash | Note | |
-| `=` equals | Mood/emotion | |
-| `<` left chevron | Task deferred to backlog | renders in place with its literal mark — moving it is manual, not automatic |
-| `>` right chevron | Task pushed to next day | renders in place with its literal mark — moving it is manual, not automatic |
-| struck-through text | Cancelled | any entry type |
+| `•` bullet | Task | `- [ ]` open / `- [x]` complete |
+| `○` circle | Event | `- [o] text` |
+| `–` dash | Note | `- text` |
+| `=` equals | Mood/emotion | `= text` (no checkbox equivalent) |
+| `<` left chevron | Task deferred to backlog | `- [<] text` — renders in place with its literal mark; moving it is manual, not automatic |
+| `>` right chevron | Task pushed to next day | `- [>] text` — same, manual |
+| struck-through text | Cancelled | `- [-] ~~text~~ (cancelled)` for any type except mood, which keeps its bare `=` glyph: `= ~~text~~ (cancelled)` |
+
+The checkbox characters (` `, `x`, `-`, `<`, `>`, `o`) match the community
+[BuJo Bullets](https://github.com/frankolson/obsidian-bujo-bullets) Obsidian plugin's
+convention, so installing it gives events and migrated tasks distinct visual styling
+in Obsidian instead of rendering as plain checkboxes. Not required — the markdown is
+fully readable without it — just a nicer reading experience if installed.
 
 The vision model only reports *what it sees* (raw symbol, crossed-out, struck-through,
 confidence) — deciding what a symbol *means* is a separate, deterministic, config-driven

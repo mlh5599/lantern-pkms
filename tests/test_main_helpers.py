@@ -92,7 +92,7 @@ def test_render_entry_text_cancelled_task() -> None:
 
 def test_render_entry_text_event() -> None:
     c = ClassifiedEntry(entry_type="event", state="scheduled", text="Dentist at 2pm", symbol_raw="circle", confidence=0.9, needs_review=False)
-    assert render_entry_text(c) == "○ Dentist at 2pm"
+    assert render_entry_text(c) == "- [o] Dentist at 2pm"
 
 
 def test_render_entry_text_event_indents_nested_entries() -> None:
@@ -100,12 +100,30 @@ def test_render_entry_text_event_indents_nested_entries() -> None:
         entry_type="event", state="scheduled", text="Call at 3pm", symbol_raw="circle", confidence=0.9,
         needs_review=False, indent_level=1,
     )
-    assert render_entry_text(c) == "    ○ Call at 3pm"
+    assert render_entry_text(c) == "    - [o] Call at 3pm"
+
+
+def test_render_entry_text_cancelled_event() -> None:
+    # See issue #24 — cancelled events used to silently render as active ones.
+    c = ClassifiedEntry(entry_type="event", state="cancelled", text="Dentist at 2pm", symbol_raw="circle", confidence=0.9, needs_review=False)
+    assert render_entry_text(c) == "- [-] ~~Dentist at 2pm~~ (cancelled)"
+
+
+def test_render_entry_text_cancelled_note() -> None:
+    c = ClassifiedEntry(entry_type="note", state="cancelled", text="Old idea", symbol_raw="dash", confidence=0.9, needs_review=False)
+    assert render_entry_text(c) == "- [-] ~~Old idea~~ (cancelled)"
 
 
 def test_render_entry_text_mood() -> None:
     c = ClassifiedEntry(entry_type="mood", state=None, text="Feeling good", symbol_raw="equals", confidence=0.9, needs_review=False)
     assert render_entry_text(c) == "= Feeling good"
+
+
+def test_render_entry_text_cancelled_mood() -> None:
+    # See issue #24 — cancelled moods used to silently render as active ones.
+    # No BuJo Bullets checkbox equivalent, so this keeps the bare "=" glyph.
+    c = ClassifiedEntry(entry_type="mood", state="cancelled", text="Feeling good", symbol_raw="equals", confidence=0.9, needs_review=False)
+    assert render_entry_text(c) == "= ~~Feeling good~~ (cancelled)"
 
 
 def test_render_entry_text_needs_review() -> None:
@@ -159,7 +177,7 @@ def test_render_entry_text_migrated_next_day() -> None:
         entry_type="task", state="migrated_next_day", text="Finish report",
         symbol_raw="chevron_right", confidence=0.9, needs_review=False,
     )
-    assert render_entry_text(c) == "> Finish report"
+    assert render_entry_text(c) == "- [>] Finish report"
 
 
 def test_render_entry_text_migrated_backlog() -> None:
@@ -167,7 +185,7 @@ def test_render_entry_text_migrated_backlog() -> None:
         entry_type="task", state="migrated_backlog", text="Plan trip",
         symbol_raw="chevron_left", confidence=0.9, needs_review=False,
     )
-    assert render_entry_text(c) == "< Plan trip"
+    assert render_entry_text(c) == "- [<] Plan trip"
 
 
 def test_render_heading_text_with_end() -> None:
@@ -267,5 +285,5 @@ def test_append_rendered_lines_migrated_entry_renders_in_place_not_split() -> No
 
     assert list(rendered.keys()) == ["Daily/2026/2026-07-09.md"]
     origin_line = rendered["Daily/2026/2026-07-09.md"][0]
-    assert origin_line.text == "> Finish report"
+    assert origin_line.text == "- [>] Finish report"
     assert origin_line.block_id == "lp-1-1-0"
