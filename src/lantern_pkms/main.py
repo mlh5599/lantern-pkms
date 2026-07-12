@@ -198,6 +198,44 @@ def group_page_items(vlm_lines: list[VLMLine], symbol_config: SymbolMappingConfi
     return items
 
 
+def normalize_indent_levels(items: list[PageItem]) -> list[PageItem]:
+    """Rebase indent_level within each heading-delimited run so its minimum
+    becomes 0, preserving relative nesting but shifting the whole run flush-left.
+
+    Fixes a real rendering bug (issue #25): a line indented 4+ spaces that isn't
+    continuing an already-open list is CommonMark syntax for an indented code
+    block, not a nested list item — Obsidian (and BuJo Bullets' checkbox styling
+    with it) silently swallows the whole line into a code block instead of
+    rendering it as a list item. This happens whenever the *first* entry after a
+    heading has indent_level >= 1, which is common since the model reports
+    indentation relative to the page's absolute left margin, not relative to the
+    heading. Only affects rendering — callers should apply this to a copy used
+    for RenderedLine text, not to what's persisted in pages.htr_json, which
+    should keep the model's raw, unmodified indent_level.
+    """
+    result: list[PageItem] = []
+    run: list[EntryItem] = []
+
+    def flush_run() -> None:
+        if not run:
+            return
+        baseline = min(entry_item.entry.indent_level for entry_item in run)
+        for entry_item in run:
+            new_level = entry_item.entry.indent_level - baseline
+            result.append(EntryItem(entry=entry_item.entry.model_copy(update={"indent_level": new_level})))
+        run.clear()
+
+    for item in items:
+        if isinstance(item, HeadingItem):
+            flush_run()
+            result.append(item)
+        else:
+            run.append(item)
+    flush_run()
+
+    return result
+
+
 def append_rendered_lines(
     rendered_by_target: dict[str, list[RenderedLine]],
     block_id: str,
@@ -380,8 +418,12 @@ def _ingest_page(
         )
     )
 
+    # Rebases indent_level for rendering only — htr_json above keeps the model's
+    # raw values (see normalize_indent_levels' docstring).
+    rendered_items = normalize_indent_levels(items)
+
     rendered_by_target: dict[str, list[RenderedLine]] = {}
-    for i, item in enumerate(items):
+    for i, item in enumerate(rendered_items):
         block_id = make_block_id(entry.id, page_number, i)
         if isinstance(item, EntryItem):
             append_rendered_lines(rendered_by_target, block_id, i, item.entry, default_path)

@@ -8,6 +8,7 @@ from lantern_pkms.main import (
     HeadingItem,
     append_rendered_lines,
     group_page_items,
+    normalize_indent_levels,
     note_already_fully_processed,
     render_entry_text,
     render_heading_text,
@@ -263,6 +264,64 @@ def test_group_page_items_entries_before_first_timebox_are_ungrouped(symbol_conf
     assert isinstance(items[0], EntryItem)
     assert items[0].entry.text == "Pre-planned task"
     assert isinstance(items[1], HeadingItem)
+
+
+def test_normalize_indent_levels_rebases_first_entry_after_heading_to_zero(symbol_config: SymbolMappingConfig) -> None:
+    # See issue #25: a first entry at indent_level >= 1 right after a heading (no
+    # preceding indent-0 list item to attach to) renders as an indented code
+    # block in Obsidian instead of a list item — no checkbox, no BuJo Bullets
+    # styling. Rebasing the run so its minimum is 0 fixes this while preserving
+    # relative nesting.
+    lines = [_start("4:00 AM"), _entry_line("wake to pee", indent_level=1, raw_symbol="circle"), _end("")]
+    items = group_page_items(lines, symbol_config)
+    normalized = normalize_indent_levels(items)
+    assert normalized[1].entry.indent_level == 0
+
+
+def test_normalize_indent_levels_preserves_relative_nesting(symbol_config: SymbolMappingConfig) -> None:
+    lines = [
+        _start("9:00 AM"),
+        _entry_line("Five 9 Call", indent_level=2, raw_symbol="circle"),
+        _entry_line("Secure pay testing", indent_level=3),
+        _entry_line("Coordinating in person test", indent_level=4),
+        _end(""),
+    ]
+    items = group_page_items(lines, symbol_config)
+    normalized = normalize_indent_levels(items)
+    assert [i.entry.indent_level for i in normalized if isinstance(i, EntryItem)] == [0, 1, 2]
+
+
+def test_normalize_indent_levels_handles_later_entry_shallower_than_first(symbol_config: SymbolMappingConfig) -> None:
+    # The run's minimum can come from any entry, not just the first — using the
+    # true minimum (not just the first entry's level) avoids ever needing to
+    # clamp a negative result.
+    lines = [
+        _start("9:00 AM"),
+        _entry_line("Nested first", indent_level=2, raw_symbol="circle"),
+        _entry_line("Shallower second", indent_level=1),
+        _end(""),
+    ]
+    items = group_page_items(lines, symbol_config)
+    normalized = normalize_indent_levels(items)
+    assert [i.entry.indent_level for i in normalized if isinstance(i, EntryItem)] == [1, 0]
+
+
+def test_normalize_indent_levels_resets_baseline_per_heading(symbol_config: SymbolMappingConfig) -> None:
+    lines = [
+        _start("9:00 AM"), _entry_line("First section", indent_level=2, raw_symbol="circle"), _end(""),
+        _start("10:00 AM"), _entry_line("Second section", indent_level=1, raw_symbol="circle"), _end(""),
+    ]
+    items = group_page_items(lines, symbol_config)
+    normalized = normalize_indent_levels(items)
+    entry_levels = [i.entry.indent_level for i in normalized if isinstance(i, EntryItem)]
+    assert entry_levels == [0, 0]
+
+
+def test_normalize_indent_levels_leaves_already_flush_entries_unchanged(symbol_config: SymbolMappingConfig) -> None:
+    lines = [_entry_line("Pre-planned task"), _entry_line("Second task", indent_level=1)]
+    items = group_page_items(lines, symbol_config)
+    normalized = normalize_indent_levels(items)
+    assert [i.entry.indent_level for i in normalized] == [0, 1]
 
 
 def test_append_rendered_lines_goes_to_default_path() -> None:
